@@ -1,0 +1,2 @@
+[26916:14524:0928/184854.920:VERBOSE1:chrome\updater\win\installer\installer.cc:502] "C:\Users\moham\AppData\Local\Temp\chrome_installer.exe" --silent --install --install=appguid={8A69D345-D564-463C-AFF1-A69D9E530F96}&browser=0&usagestats=1&appname=Google%20Chrome&needsadmin=prefers&brand=GTPM --enable-logging --vmodule=*/components/winhttp/*=1,*/components/update_client/*=2,*/chrome/enterprise_companion/*=2,*/chrome/updater/*=2
+[26916:14524:0928/185155.379:VERBOSE1:chrome\updater\win\installer\installer.cc:620] Metainstaller WMain returning: 0

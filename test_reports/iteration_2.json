@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 2 deep-flow frontend testing for JobPilot. Verified: reminders CRUD (create/snooze/done/delete), kanban 7-column board with HTML5 drag+drop (Preparing→Applied) persisting across reload, application drawer (interview date save auto-creates reminders, notes/contacts add, doc upload txt, timeline), language toggle (Arabic RTL sidebar-right + Arabic labels, back to EN), settings persistence (quiet hours 23:00/07:30 + weekly_goal=15 after reload), consent toggle, admin plans save (free.reviews=0 write), admin user plan Free↔Pro via SimpleSelect, admin audit filter, admin sources list/toggle, existing approved English tailored CV (tl_1ec15d393d2b4e15): 4 export buttons render and PDF/DOCX for CV & Cover all download non-empty files (2.6-37KB), mobile 390px kanban horizontal scroll + per-card move select visible + no body overflow on tracker/reminders/job-detail. BLOCKING: creating NEW tailored CVs and running NEW AI job reviews both return 502 'AI tailoring failed' because admin AI model config has scoring & writing set to 'nvidia · nvidia/llama-3.1-nemotron-70b-instruct' but NVIDIA key shows 'not set' in the AI cost panel. Because of this, tests 1 (new EN tailor), 2 (Arabic tailor), and 6 (plan-limit upgrade dialog — /api/jobs/{id}/review also hits AI before returning) could NOT be verified end-to-end. Admin state restored (free.limits reset to reviews=10/tailors=2/cvs=1/applications=25 and demo plan back to Free).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/tailor", "issue": "Returns 502 'AI tailoring failed' — writing model configured to nvidia · nvidia/llama-3.1-nemotron-70b-instruct but /admin/models shows 'NVIDIA key: not set'. Repro: admin > AI cost & models — both scoring & writing are set to nvidia. Any new tailor call fails.", "priority": "CRITICAL"},
+      {"endpoint": "POST /api/jobs/{id}/review", "issue": "Same 502 root cause — scoring model is nvidia too, so review never reaches limit-check response path for the upgrade dialog test.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "New tailoring (EN & AR)", "issue": "Tailor button POSTs /api/tailor which 502s; UI shows toast error but validation-panel/tailor-studio never renders because navigation only happens on success. Can't test Diff/Flags/Approve/Export for freshly generated tailored CVs. The existing tl_1ec15d393d2b4e15 studio + exports all work.", "affected_selectors": ["tailor-button", "tailor-lang-select"]},
+      {"flow": "Plan-limit upgrade dialog (test 6)", "issue": "After setting free.reviews=0 in admin > plans and clicking run-review-button as demo (still on free plan), no upgrade-dialog appeared; /api/jobs/{id}/review returned 502 (NVIDIA key) so the client never saw the 402 limit response. Once main agent fixes AI models, this needs re-testing.", "affected_selectors": ["run-review-button", "upgrade-dialog"]}
+    ],
+    "design_issues": [
+      {"screen": "Admin panel", "issues": ["Admin route wraps content in dir='ltr' but the AppShell sidebar still uses the admin user's saved lang; if admin's saved lang is 'ar' the sidebar shows Arabic labels on the right while the admin content is LTR. Cosmetic, not blocking."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "HIGH: Admin > AI cost & models — change BOTH scoring and writing to anthropic · claude-haiku-4-5-20251001 (or claude-sonnet-4-6 for writing) and save; NVIDIA key isn't configured on this env. This unblocks new tailoring, AI review, upgrade-dialog test, and any future e2e that touches the LLM.",
+    "MED: After the AI models are fixed, re-run tests 1 (new English tailor: Diff/Flags/Approve/Save-edits/Cover/Export), 2 (Arabic tailor: RTL + approve + PDF), 6 (plan-limit upgrade dialog by setting free.reviews=0 then running review as demo), 9 (register throwaway user, upload DOCX, save master v1).",
+    "LOW: Consider adding a friendlier UI hint on job-detail when tailor/review 502s so users understand the AI provider is unavailable rather than a generic error toast.",
+    "LOW: In Admin > AI, when a provider's key is 'not set', disable save (or warn) when a model of that provider is selected for scoring/writing — prevents silent 502 for all users."
+  ],
+  "critical_code_review_comments": [
+    "r_apps.tailor: check_limit runs before llm_json — good — but any 502 from the LLM is not distinguished from limit errors in the client; consider mapping provider 'no api key' errors to a clearer 503 with hint.",
+    "Admin AI panel shows 'NVIDIA key: not set' text but still lets the admin save nvidia as active provider — should validate at save time.",
+    "Tailor.jsx: on POST /api/tailor failure the toast is via errMsg(e) — good; but there's no fallback rendering, only a spinner then error. Consider inline error card on the job detail page.",
+    "Existing tailored CV export endpoints all work reliably; language toggle sets html.dir correctly across pages including tailor studio.",
+    "SimpleSelect / radix combobox does not support Playwright page.select_option (it's a button+radix). Tests must use click trigger + click role=option — worth noting in a test playbook."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only iteration)", "frontend": "~75% (12 flows PASS; 3 flows BLOCKED by AI provider 502; register+DOCX skipped)"},
+  "test_credentials": "admin mo7ammed99887@gmail.com / JobPilot@Admin2026 — WORKING. demo demo@jobpilot.app / Demo@12345 — WORKING (plan free, usage rev/tail/parses=1/1/1 as of end of run).",
+  "seed_data_creation": "Left in place on demo's only application (app_44b1563e7aa64d6e Senior BI Analyst @ Almarai): 1 TEST_ note, 1 TEST_ contact (test@x.com), 1 uploaded test.txt document, interview_at=2026-09-30T10:31Z (with auto-scheduled 24h+1h interview reminders). Kanban card moved from preparing→applied. Existing approved English tailored CV tl_1ec15d393d2b4e15 is intact. Free plan limits and demo plan restored to defaults.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Priority for next iteration: (1) main agent must fix admin AI models to anthropic (both scoring+writing) — verify via /api/admin/models. (2) Then re-run: fresh EN tailor on job_6909ad2edcab4c47 (Almarai) — expect navigation to /app/tailor/{id}, validation flags list, approve gating on open flags, save-edits (tailor-save-edits), cover-save, tab-diff, exports. (3) Then Arabic tailor via tailor-lang-select→العربية → verify outer dir=rtl on tailor studio + Arabic PDF non-empty. (4) Plan limit: set free.reviews=0 in Admin>Plans then as demo run review on any Remotive job — expect upgrade-dialog (currently no data-testid on the dialog itself; only the trigger button — main agent should add data-testid='upgrade-dialog'). (5) Register a throwaway user + DOCX upload for CV parse. Admin state has been fully restored; do NOT need to reset. All fast flows (kanban/reminders/drawer/settings/language toggle/mobile/existing tailor exports) are verified — no need to retest unless code changes.",
+  "rca_of_the_issue": "The active AI provider configured in the admin panel (nvidia) has no API key on this environment. r_apps.tailor and r_jobs.review both call llm_json which routes through litellm using the active model; the underlying provider errors bubble up as HTTPException(502). Fix: PUT /api/admin/models {scoring:{provider:'anthropic',model:'claude-haiku-4-5-20251001'}, writing:{provider:'anthropic',model:'claude-sonnet-4-6'}} — anthropic is confirmed to work (Cost by feature 30d shows successful prior calls to claude-haiku and claude-sonnet, and the existing tailored CV was created with those models)."
+}

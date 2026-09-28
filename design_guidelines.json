@@ -1,0 +1,107 @@
+{
+  "project_name": "JobPilot - ERP for Job Seekers (Saudi Arabia & GCC Focus)",
+  "app_type": "saas_dashboard_bilingual",
+  "theme_strategy": "Calm, focused, dense tactical productivity tool. Soft slate/sand base with deep forest emerald primary accents and electric amber score indicators.",
+  "bilingual_rtl_strategy": {
+    "supported_languages": ["en", "ar"],
+    "direction_mode": "Fully mirrored dir='rtl' when Arabic is active. Sidebar switches to right side, flex layout directions flip, icons mirror where directional (arrows, chevrons, flow indicators), Kanban columns reverse (Saved starts on right in RTL).",
+    "english_font": "Work Sans, sans-serif",
+    "arabic_font": "Cairo, Tajawal, sans-serif",
+    "font_loading_instructions": "Import Google Fonts: Work Sans (400, 500, 600, 700) and Cairo (400, 600, 700) in index.html or index.css. Apply font-family dynamically based on active locale."
+  },
+  "typography": {
+    "heading_font": "Work Sans, Cairo, sans-serif",
+    "body_font": "Inter, IBM Plex Sans, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "scale": {
+      "h1": "text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight",
+      "h3": "text-xl sm:text-2xl font-medium",
+      "h4": "text-lg font-medium",
+      "body": "text-sm sm:text-base leading-relaxed",
+      "caption": "text-xs font-mono uppercase tracking-widest text-muted-foreground"
+    }
+  },
+  "colors": {
+    "archetype": "Organic & Performance Pro Hybrid (Grounded Forest Emerald + Precision Tactical Amber)",
+    "light": {
+      "background": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "surface_subtle": "#F1F5F9",
+      "border": "#E2E8F0",
+      "text_primary": "#0F172A",
+      "text_secondary": "#475569",
+      "text_muted": "#94A3B8",
+      "primary": "#064E3B",
+      "primary_hover": "#047857",
+      "primary_foreground": "#FFFFFF",
+      "accent_amber": "#D97706",
+      "accent_emerald": "#059669",
+      "accent_rose": "#E11D48",
+      "accent_sky": "#0284C7"
+    },
+    "dark": {
+      "background": "#090D16",
+      "surface": "#111827",
+      "surface_subtle": "#1F2937",
+      "border": "#1F2937",
+      "text_primary": "#F9FAFB",
+      "text_secondary": "#9CA3AF",
+      "text_muted": "#6B7280",
+      "primary": "#10B981",
+      "primary_hover": "#059669",
+      "primary_foreground": "#064E3B",
+      "accent_amber": "#F59E0B",
+      "accent_emerald": "#10B981",
+      "accent_rose": "#F43F5E",
+      "accent_sky": "#38BDF8"
+    },
+    "match_score_tiers": {
+      "high_80_100": {
+        "badge_bg": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+        "label": "Apply Immediately / قدم الآن"
+      },
+      "mid_60_79": {
+        "badge_bg": "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30",
+        "label": "Consider / محتمل"
+      },
+      "low_0_59": {
+        "badge_bg": "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30",
+        "label": "Skip / تجاوز"
+      }
+    }
+  },
+  "grids_and_layouts": {
+    "app_shell": "Responsive sidebar layout with top bar tenant switcher, quick search trigger, language switcher (EN/AR), theme toggle, notification center, and user avatar menu.",
+    "dashboard_bento": "High Density Grid (MODE B). 4-column base. Hero KPI summary banner span 4, Funnel chart span 2, Weekly goals/upcoming reminders span 2, Recent match feed span 4.",
+    "kanban_tracker": "7-stage workflow columns (Saved -> Preparing -> Applied -> Interview -> Offer -> Rejected -> Ghosted). Horizontal scrollable container with touch drag/card count badges and quick add button.",
+    "tailor_studio_diff": "2-column side-by-side split screen view with sync-scrolling option, highlight diffs (Green addition, Red removal/caution, Yellow AI suggestion), top bar approval actions & hallucination checker badge."
+  },
+  "image_urls": {
+    "hero_executive": "https://images.pexels.com/photos/8939108/pexels-photo-8939108.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "saudi_office": "https://images.pexels.com/photos/7984742/pexels-photo-7984742.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "riyadh_skyline": "https://images.unsplash.com/photo-1694018359679-49465b4c0d61?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwxfHxzYXVkaSUyMHJpeWFkaCUyMHNreWxpbmUlMjBnbGFzcyUyMHNreXNjcmFwZXJ8ZW58MHx8fHwxNzkwMzMwMjE4fDA&ixlib=rb-4.1.0&q=85",
+    "twisted_tower": "https://images.pexels.com/photos/36405564/pexels-photo-36405564.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "company_badges": [
+      "https://images.unsplash.com/photo-1737894543924-15e1ff7adbdb?crop=entropy&cs=srgb&fm=jpg",
+      "https://images.unsplash.com/photo-1659729680016-9316546ab799?crop=entropy&cs=srgb&fm=jpg"
+    ]
+  },
+  "key_components_and_interactions": {
+    "app_shell_sidebar": "Collapsible sidebar with icon + label links, active route highlight with subtle emerald left-border bar in LTR (right-border bar in RTL).",
+    "job_card": "Includes company logo, job title, location tag, salary tag, source (LinkedIn, Bayt, Tanqeeb, GulfTalent, Direct), AI Match Score pill with match ring, and Verdict button.",
+    "ai_review_panel": "Side panel or tab showing Matched Skills tags (green), Missing Skills tags (orange), Red Flags warning boxes, and concise bullet AI rationale.",
+    "tailor_studio": "Side-by-side CV comparison with real-time toggle between 'Master CV' and 'Tailored Version'. Diff viewer highlights added keywords and modified phrasing.",
+    "validation_check_box": "Hallucination warning pill: verifies dates, company names, and metric claims against Master CV before export.",
+    "kanban_card": "Draggable or menu-selectable application card with status, last activity date, salary indicator, notes counter, and next action reminder tag.",
+    "reminders_sheet": "Timezone aware reminder creator with quiet hours indicator, quick templates ('Follow up post-interview', 'Check application status').",
+    "stripe_billing_meters": "Usage progress bars showing AI tailored CVs used (e.g., 14/20 used) and Job scans remaining."
+  },
+  "instructions_to_main_agent": [
+    "Always wrap root application or layout in a direction controller (<div dir={isRtl ? 'rtl' : 'ltr'} className={isRtl ? 'font-arabic' : 'font-sans'}>).",
+    "Ensure every clickable button, form field, tab, card, and interactive element contains a clear 'data-testid' attribute (e.g. data-testid='apply-verdict-button').",
+    "DO NOT use generic centered text for content panels. Left-align text in LTR and Right-align text in RTL.",
+    "Use Radix/Shadcn UI components (Select, Dialog, Drawer, Tabs, DropdownMenu, Switch, Tooltip, Table) with explicit non-transparent background colors.",
+    "Support full bilingual state switching across all views: Landing page, Onboarding wizard, Job Feed, Tailor Studio, Kanban Board, Reminders, Settings, Billing, and Admin panel."
+  ]
+}

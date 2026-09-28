@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 3 backend + frontend verification of Phase-2/3 additions. Backend: 16 new pytest cases (test_phase3.py) + 30 regression cases all PASS (46/46). Frontend flows verified: admin sidebar-plan='premium', Billing 'Admin accounts always use the Premium plan' (Arabic rendering: 'حسابات المشرفين تستخدم خطة Premium دائمًا'), Users tab renders 'Premium (admin)' with no plan-select for admin row, admin-grant-plan-demo@jobpilot.app + admin-grant-days-demo@jobpilot.app + admin-grant-demo@jobpilot.app grant Pro/30d → 'until 2026-09-30' shown & demo Billing plan-expiry-note='خطة Pro فعّالة حتى ٢٥ أكتوبر ٢٠٢٦' & demo sidebar-plan='pro'; admin-trial-card set 7 saved and reset to 0; admin AI tab — selecting nvidia · llama models and clicking admin-models-save → toast contains NVIDIA_API_KEY hint & GET /admin/models still returns anthropic (settings unchanged); admin-tab-eval shows previous 'done' run w/ metrics table (verdict_agreement 67%, skill_recall 100%, validator_recall 100%, arabic_verdict_agreement 50%, cost 0.0159) and admin-eval-run click creates a new run (runs count 1→2); admin-insights card visible on Overview with by_weekday and by_source tables; settings-tab-integrations shows whatsapp-status='غير مرتبط — لم تُضبط بيانات واتساب للأعمال بعد' and save-job-card with save-job-copy → clipboard contains the javascript: bookmarklet & 'Copied' toast fires (after granting clipboard permission); /app/jobs?add_text=<60-char job desc>&add_url=… opens manual dialog with manual-job-text prefilled and manual-job-url='https://example.com/job'; coaching page /app/coach exposes my-coaches, my-candidates, coach-email-input, coach-grant-button, coach-revoke-user_cd60982d6aea4a90 (existing admin↔demo link); language-toggle switches new pages to Arabic (Coach 'المرشحون/مرشدون/المرشد', drawer prep tab shows 'التحضير'). BLOCKER FOUND: clicking prep-generate on demo's Almarai app triggered a UI runtime error 'Objects are not valid as a React child (found: object with keys {situation, task, action, result})' — the interview_prep prompt schema declares answer_outline as a string 'STAR-style outline' but the LLM returned the STAR breakdown as a nested object; PrepTab renders q.answer_outline directly as a React child and crashes the whole app until reload.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/admin/users/{id}", "issue": "When body has 'plan' but no 'plan_days', plan_expires_at is set to None (correct); however if only plan_days is sent without plan, days are silently dropped (upd.pop before plan check). Consider erroring on plan_days without plan. Not user-facing."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ApplicationDrawer > PrepTab", "issue": "Renders q.answer_outline directly as a React child. When the LLM returns answer_outline as an object {situation, task, action, result} (STAR breakdown) instead of a formatted string, React throws 'Objects are not valid as a React child' and the whole SPA errors out. Cleared demo's prep doc from DB to unbreak the app for retesting.", "selector": "[data-testid=\"prep-tab\"] > ol > li", "priority": "HIGH"},
+      {"component": "ApplicationDrawer TabsList", "issue": "With 7 tabs in RTL/Arabic (nazrah/malahazat/jahat/mustanadat/sijil/tahdeer/bareed), tabs wrap to a second row and drawer-tab-prep sits behind the close button on 1440x900, making the prep tab hard to reach without a wider viewport (only tested reliably at 1920x1080).", "selector": "[data-testid=\"drawer-tab-prep\"]", "priority": "MED"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Application drawer (Arabic)", "issues": ["7 tabs wrap onto two rows on 1440px — consider a scrollable tab bar or icon-only compact mode"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase3.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/phase3_results.xml",
+    "/app/test_reports/pytest/regression.xml"
+  ],
+  "action_items": [
+    "HIGH: PrepTab (frontend/src/pages/ApplicationDrawer.jsx line 75) — harden rendering of q.answer_outline. Option A (frontend): if typeof q.answer_outline === 'object', render as 'S: {situation}\\nT: {task}\\nA: {action}\\nR: {result}' via a small helper. Option B (backend r_phase2.interview_prep): coerce non-string answer_outline into a string before persisting. Recommend both (backend coerce + frontend defensive render).",
+    "MED: r_phase2.interview_prep prompt says answer_outline is a string but the LLM sometimes returns an object — tighten prompt or add a Pydantic validator that flattens dict → 'S/T/A/R:' string.",
+    "MED: Drawer TabsList wraps to 2 rows in Arabic on 1440px — make it horizontally scrollable or reduce tab labels.",
+    "LOW: admin_patch_user drops plan_days when plan is omitted — validate or error at request time."
+  ],
+  "critical_code_review_comments": [
+    "r_admin.admin_patch_user: silently drops plan_days if plan not in body (upd.pop happens before the 'if plan in upd' check).",
+    "r_phase2.interview_prep prompt schema doesn't constrain answer_outline strongly; LLM output is trusted and passed straight to Mongo/UI causing the STAR-object React crash.",
+    "PrepTab renders arbitrary q.answer_outline (typeof unknown) as a React child — needs a safe stringifier.",
+    "Admin AI tab: NVIDIA guard works server-side (400 + clear message) and UI shows a toast — good defensive fix compared to iteration 2.",
+    "Coach flows (grant/revoke/comment/notify) are clean and idempotent; my-candidates + my-coaches list from /coach/overview render both roles correctly.",
+    "Save-jobs bookmarklet: clipboard write depends on secure context + user gesture; on non-clipboard test envs the toast still shows because navigator.clipboard exists on HTTPS preview — good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3.py (new)"
+  ],
+  "success_rate": {"backend": "100% (46/46 tests pass — 16 phase3 + 30 regression)", "frontend": "~92% (11 of 12 flows pass; interview-prep AI generation triggers UI runtime error)"},
+  "test_credentials": "admin mo7ammed99887@gmail.com / JobPilot@Admin2026, demo demo@jobpilot.app / Demo@12345 — both WORKING.",
+  "seed_data_creation": "Left in place: coach link demo→admin (idempotent), 1 extra completed eval run (transient log), 1 comment on demo's app_44b1563e7aa64d6e ('TEST_comment ...'), a few throwaway test_/trial_ users from register-with-trial and no-link permission tests. RESTORED: demo plan=free (was pro for 30d during grant test), plan_expires_at=None, admin-trial back to {plan:pro,days:0}, admin AI models unchanged (still anthropic haiku/sonnet), demo app prep field UNSET (cleared to unbreak the UI after the STAR-object crash).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Priority 1: after main agent fixes PrepTab / interview_prep answer_outline handling, re-open demo's Almarai app (app_44b1563e7aa64d6e) drawer → drawer-tab-prep → prep-generate; expect a numbered list of Q/A cards without React crash. Priority 2: original iteration 1 blocker (NVIDIA models) is fully resolved — feel free to run a fresh EN tailor + Arabic tailor on the Almarai job now; models config is anthropic haiku/sonnet and grants + trials both work end-to-end. Do NOT need to retest kanban/reminders/settings/admin plans — those regressed cleanly in iterations 1-2 and still work here. Admin state is restored except for one extra 'done' eval run which is harmless.",
+  "rca_of_the_issue": "LLM (claude-sonnet-4-6) does not always honour the interview_prep@1.0 prompt schema — the string 'STAR-style outline using only real CV facts' is sometimes materialised as a JSON object {situation, task, action, result}. The backend persists whatever JSON comes back (validate_tailored is not applied to prep) and PrepTab in the frontend renders `q.answer_outline` as a React child. When it's a dict, React throws 'Objects are not valid as a React child' and Emergent's runtime-error overlay hides the entire app. Mitigation applied: cleared the corrupted prep from demo's app so testers can reopen the drawer without crashing. Permanent fix: (1) backend — after llm_json returns, walk res.questions and coerce non-string answer_outline via `' · '.join(f'{k[0].upper()}: {v}' for k,v in ao.items())`; (2) frontend — render safely: `typeof q.answer_outline==='string' ? q.answer_outline : Object.entries(q.answer_outline).map(([k,v])=>`${k}: ${v}`).join('\\n')`."
+}

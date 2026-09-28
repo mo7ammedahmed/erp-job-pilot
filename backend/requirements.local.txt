@@ -1,0 +1,40 @@
+# Minimal runtime set for running JobPilot on a local machine (no Docker, no Emergent platform).
+# The pinned requirements.txt is a full snapshot of the cloud image's site-packages, including
+# transitive/dev-only packages that are not needed to boot the API. This file lists only what is
+# actually imported by the backend.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic[email]==2.10.4
+python-multipart==0.0.20
+python-dotenv==1.0.1
+
+motor==3.6.0
+pymongo==4.9.2
+
+bcrypt==4.2.1
+PyJWT==2.10.1
+cryptography==44.0.0
+httpx==0.28.1
+requests==2.32.3
+
+APScheduler==3.11.0
+# emergentintegrations ships only from Emergent's private asset host. A local, OpenAI-compatible
+# stand-in now lives in backend/emergentintegrations/, so there is nothing to install here.
+
+pypdf==5.1.0
+python-docx==1.1.2
+reportlab==4.2.5
+arabic-reshaper==3.0.1
+python-bidi==0.6.6
+
+stripe==11.6.0
+google-auth-oauthlib==1.2.2
+google-api-python-client==2.160.0
+google-auth==2.37.0
+
+numpy==2.2.1
+# reportlab pulls chardet unpinned; 5.2.0 is the last version inside requests' supported range,
+# so it avoids a RequestsDependencyWarning on every request.
+chardet==5.2.0
+pytest==8.3.4
+pytest-xdist==3.6.1
