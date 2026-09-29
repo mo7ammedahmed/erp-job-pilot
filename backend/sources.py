@@ -65,7 +65,7 @@ CITY_INDEX = {
     "al-ula": ["al ula", "ela", "العلا"],
     # --- Eastern Province ---
     "dammam": ["dammam", "ad dammam", "الدمام"],
-    "khobar": ["khobar", "al khobar", "الخبر"],
+    "khobar": ["khobar", "al khobar", "khubar", "al khubar", "الخبر"],
     "dhahran": ["dhahran", "al dhahran", "الظهران"],
     "jubail": ["jubail", "al jubail", "الجبيل"],
     "qatif": ["qatif", "al qatif", "القطيف"],
@@ -75,7 +75,7 @@ CITY_INDEX = {
     "khafji": ["khafji", "al khafji", "خفجي"],
     "safha": ["safha", "الصفا"],
     # --- Qassim region ---
-    "buraidah": ["buraidah", "buraida", "بريدة"],
+    "buraidah": ["buraidah", "buraida", "buraydah", "al buraydah", "بريدة"],
     "unaizah": ["unaizah", "unieza", "عنيزة"],
     "ar-rass": ["ar rass", "al rass", "الراس"],
     "bukayriyah": ["al bukayriyah", "bukayriyah", "البكيرية"],
@@ -109,7 +109,7 @@ CITY_INDEX = {
     "dumat-al-jandal": ["dumat al jandal", "dumat al-jandal", "دومة الجندل"],
     # --- Northern Borders region ---
     "arar": ["arar", "عرعر"],
-    "al-qaisumah": ["al qaisumah", "qaisumah", "القaisyمة"],
+    "al-qaisumah": ["al qaisumah", "qaisumah", "القايسمة"],
     "rafha": ["rafha", "رفح"],
     # --- Jazan region ---
     "jazan": ["jazan", "gizan", "jizan", "جازان"],
@@ -153,7 +153,7 @@ MARKET_CITIES = {
     },
     "BH": {
         "manama": ["manama", "المنامة"], "muharraq": ["muharraq", "المحرق"], "riffa": ["riffa", "الرفاع"],
-        "isa-town": ["isa town", "عيسى town", "عيسا"], "saitiya": ["saitiya", "سعدية"], "budaiya": ["budaiya", "الbudaiya", "بودايه"],
+        "isa-town": ["isa town", "عيسا"], "saitiya": ["saitiya", "سعدية"], "budaiya": ["budaiya", "بودايه"],
         "hamad-town": ["hamad town", "مدينة حمد"],
     },
     "OM": {
@@ -173,7 +173,7 @@ MARKET_CITIES = {
     "JO": {
         "amman": ["amman", "عمّان", "عمان"], "zarqa": ["zarqa", "الزرقاء"], "irbid": ["irbid", "إربد"],
         "aqaba": ["aqaba", "العقبة"], "madaba": ["madaba", "مادبا"], "karak": ["karak", "الكرك"],
-        "salt": ["salt", "السalt", "سلط"],
+        "salt": ["salt", "سلط"],
     },
     "LB": {
         "beirut": ["beirut", "بيروت"], "tripoli": ["tripoli", "طرابلس"], "sidon": ["sidon", "صور"],
@@ -267,6 +267,10 @@ SA_CITY_KEYS = {
 # both the country hints and the city picker, so a city can never be claimed by two countries.
 MARKET_CITY_KEYS = {cc: set(cities) for cc, cities in MARKET_CITIES.items()}
 NON_SA_CITY_KEYS = set().union(*MARKET_CITY_KEYS.values()) if MARKET_CITY_KEYS else set()
+# Reverse lookup used to settle a job's country from its own city, so a stray country word elsewhere
+# in the location string cannot override a city that is unambiguous. Saudi cities are intentionally
+# absent: Saudi is the default market, and the collision guard below already keeps the two disjoint.
+CITY_KEY_COUNTRY = {key: cc for cc, keys in MARKET_CITY_KEYS.items() for key in keys}
 # Flatten country -> {city -> aliases} into city -> aliases. Note MARKET_CITIES is nested one level
 # deeper than CITY_INDEX, so the merge below must walk the inner dicts, not the country codes.
 MARKET_ALIASES = {city: aliases for cities in MARKET_CITIES.values() for city, aliases in cities.items()}
@@ -287,9 +291,28 @@ _SA_EXTRA_HINTS = [
 ]
 
 _CITY_LOOKUP = {alias.lower(): key for key, aliases in CITY_INDEX.items() if aliases for alias in aliases}
+# ATS feeds routinely drop the space inside multi-word city names ("Al Khobar" -> "alkhubar").
+# Word-boundary matching cannot bridge that gap on its own, so register the spaceless spelling of
+# every multi-word alias as a variant of the same city. Only whole-word matches are allowed later,
+# so "alkhubar" cannot bleed into an unrelated longer name.
+for _key, _aliases in list(CITY_INDEX.items()):
+    for _a in list(_aliases):
+        _tight = re.sub(r"[\s\-_]+", "", _a)
+        if _tight and _tight != _a and _tight not in _CITY_LOOKUP:
+            _CITY_LOOKUP[_tight] = _key
 # Longest alias first: a short alias can sit inside a longer city name ("duba" inside "dubai",
 # "ula" inside "ulaan"), and matching that way would label the wrong city.
 _CITY_ALIASES_BY_LEN = sorted(_CITY_LOOKUP.items(), key=lambda kv: -len(kv[0]))
+
+# Some boards put a country (or a region, or "Remote") in the city slot. Folding those through the
+# alias table would invent a city named "saudi-arabia" that no city filter can ever offer, so they
+# resolve to no key and the country detection below is left to handle them. This is built from the
+# country *names* only: COUNTRY_HINTS also carries city spellings ("abu dhabi"), so filtering it on
+# "contains a space" would delete real cities from the map.
+_NOT_A_CITY = {n.lower() for n in COUNTRY_NAMES.values()} | {c.lower() for c in COUNTRY_NAMES}
+_NOT_A_CITY |= {"ksa", "u.a.e.", "uae", "gcc", "middle east", "gulf region", "eastern mediterranean"}
+_NOT_A_CITY |= {"remote", "worldwide", "anywhere", "global", "multiple locations", "various locations",
+                "unspecified", "n/a", "na", "-", "--", "غير محدد", "عن بُعد", "أي مكان"}
 
 COUNTRY_HINTS["SA"] = sorted(
     {a.lower() for k in SA_CITY_KEYS for a in (CITY_INDEX.get(k) or [])} | set(_SA_EXTRA_HINTS)
@@ -311,8 +334,16 @@ def normalize_city(s):
     if not s:
         return ""
     head = re.split(r"[,،/|]", s)[0].strip()
+    # Drop a trailing qualifier such as "Saudi Arabia (KSA)" or "Dubai - Business Bay" so the base
+    # name is what gets matched.
+    head = re.sub(r"\s*[\(\[][^)\]]*[\)\]]\s*$", "", head).strip()
+    # A known city name wins over the not-a-city check: "kuwait" is the alias for Kuwait City and
+    # the country name at once, and cities that share a country's name (Kuwait City, Singapore,
+    # Luxembourg) must keep resolving to the city.
     if head in _CITY_LOOKUP:
         return _CITY_LOOKUP[head]
+    if head in _NOT_A_CITY:
+        return ""
     # Longest alias first, matched on word boundaries. Plain substring matching would let a
     # short alias win from inside a longer city name ("duba" inside "dubai", "ula" in "ulaan").
     for alias, key in _CITY_ALIASES_BY_LEN:
@@ -327,11 +358,16 @@ DEFAULT_SOURCES = [
     {"source_id": "jooble", "name": "Jooble", "kind": "partner_api", "env_key": "JOOBLE_API_KEY", "attribution": "Jobs by Jooble", "config": {}},
     # Board tokens below are employer account slugs on each public ATS. They can be edited at
     # runtime from Admin -> Source health, so new employers never need a code change.
-    {"source_id": "greenhouse", "name": "Greenhouse boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (Greenhouse)", "config": {"boards": ["careem", "tamara"]}},
-    {"source_id": "lever", "name": "Lever boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (Lever)", "config": {"boards": []}},
-    {"source_id": "ashby", "name": "Ashby boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (Ashby)", "config": {"boards": []}},
-    {"source_id": "workable", "name": "Workable boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (Workable)", "config": {"boards": ["foodics", "salla", "lucidya", "fetchr"]}},
-    {"source_id": "smartrecruiters", "name": "SmartRecruiters boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (SmartRecruiters)", "config": {"boards": ["namshi"]}},
+    # Each token was verified by scripts/validate_board_tokens.py to return live Saudi postings;
+    # a token seen in a URL is not enough, since slugs are reassigned between employers.
+    # The large Saudi corporates (Aramco, SABIC, stc, NEOM, the banks) are deliberately absent:
+    # they run Oracle Taleo, SAP SuccessFactors and proprietary portals that publish no board
+    # tokens, so they cannot be added here without a licensed feed.
+    {"source_id": "greenhouse", "name": "Greenhouse boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (Greenhouse)", "config": {"boards": ["careem", "tamara", "hala", "ogilvymena", "ebanx", "nozominetworks", "jensenhughes", "minio", "telnyx54", "cssmerge"]}},
+    {"source_id": "lever", "name": "Lever boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (Lever)", "config": {"boards": ["infinitepl", "visioninvest", "soum", "biocatch", "dlocal", "fresha", "trendyol", "aleph", "lalamove", "flowlife"]}},
+    {"source_id": "ashby", "name": "Ashby boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (Ashby)", "config": {"boards": ["quartermaster", "sarjai", "leantech", "lakeora", "cognition", "checkout.com", "humanoid"]}},
+    {"source_id": "workable", "name": "Workable boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (Workable)", "config": {"boards": ["foodics", "salla", "lucidya", "fetchr", "alomar-holding-company", "horizontal-digital", "careers-sixflags-and-aquarabia", "awtad", "sihamco", "tajhr", "qiddiya-investment-company-1", "jasarapmc", "ccds", "hanmiglobal-saudi", "alkaffary-group", "nowlun", "jeeny", "tawantech"]}},
+    {"source_id": "smartrecruiters", "name": "SmartRecruiters boards", "kind": "ats_feed", "env_key": None, "attribution": "Company careers (SmartRecruiters)", "config": {"boards": ["namshi", "egisgroup", "rolandberger", "JobsForHumanity", "sobi"]}},
     {"source_id": "remotive", "name": "Remotive", "kind": "public_api", "env_key": None, "attribution": "Remote jobs by Remotive", "config": {}},
     {"source_id": "arbeitnow", "name": "Arbeitnow", "kind": "public_api", "env_key": None, "attribution": "Jobs by Arbeitnow", "config": {}},
     {"source_id": "adzuna", "name": "Adzuna", "kind": "partner_api", "env_key": ["ADZUNA_APP_ID", "ADZUNA_APP_KEY"], "attribution": "Jobs by Adzuna", "config": {}},
@@ -371,21 +407,44 @@ def fingerprint(title, company, city):
     return hashlib.sha1(f"{norm(title)}|{norm(company)}|{norm(city)}".encode()).hexdigest()
 
 
-def mk(source, source_ref, title, company, location, url, description, country=None, remote="onsite", posted_at=None,
-       salary_min=None, salary_max=None, currency=None, owner_user_id=None, **extra):
-    city = (location or "").split(",")[0].strip()
-    country = country or detect_country(location)
+def resolve_location(location, title=""):
+    """Derive (city, city_key, country) from a free-text location. Single source of truth.
+
+    mk() and the backfill migrations both need this, and they previously carried separate copies
+    that drifted apart, so a rule added here silently did not apply to already-stored rows.
+    """
+    location = location or ""
+    city = location.split(",")[0].strip()
+    city_key = normalize_city(city)
+    country = detect_country(location)
     if not country:
         # Many boards leave the location empty. The title and description often still name the
         # city or country, and an untagged job is invisible to every country filter.
-        country = detect_country(f"{city} {title}")
+        country = detect_country(f"{city} {title or ''}")
+    # An explicit, recognised city is more reliable than anything else in the location string.
+    # Greenhouse reported one Jensen Hughes role as "Abu Dhabi, Saudi Arabia"; scanning the whole
+    # string matched "saudi" and filed a UAE job under Saudi Arabia. The city key already knows its
+    # own market, so let it settle the country and keep the string scan only as a fallback.
+    if country_by_city := CITY_KEY_COUNTRY.get(city_key):
+        country = country_by_city
+    elif city_key in SA_CITY_KEYS:
+        # Symmetric case: a bare Saudi city name ("Riyadh", "alkhubar") identifies the market even
+        # when the posting never spells out the country.
+        country = "SA"
+    return city, city_key, country
+
+
+def mk(source, source_ref, title, company, location, url, description, country=None, remote="onsite", posted_at=None,
+       salary_min=None, salary_max=None, currency=None, owner_user_id=None, **extra):
+    city, city_key, detected = resolve_location(location, title)
+    country = country or detected
     haystack = f"{location} {title}"
     if remote == "onsite" and re.search(r"\bremote\b", haystack, re.I):
         remote = "remote"
     elif remote == "onsite" and re.search(r"\bhybrid\b", haystack, re.I):
         remote = "hybrid"
     return {"source": source, "source_ref": str(source_ref), "title": (title or "").strip(), "company": (company or "").strip(),
-            "location": location or "", "city": city, "city_key": normalize_city(city), "country": country, "remote": remote,
+            "location": location or "", "city": city, "city_key": city_key, "country": country, "remote": remote,
             "url": url, "description": strip_html(description)[:15000], "posted_at": posted_at, "salary_min": salary_min,
             "salary_max": salary_max, "currency": currency, "owner_user_id": owner_user_id,
             "fingerprint": fingerprint(title, company, city), **extra}
@@ -621,8 +680,12 @@ async def upsert_jobs(items):
         ex = await db.jobs.find_one({"fingerprint": j["fingerprint"]}, {"_id": 0, "job_id": 1})
         if ex:
             # Backfill apply metadata on every re-ingest: jobs are stored once and only refreshed,
-            # so without this the ATS fields would only ever exist on newly discovered jobs.
+            # so without this the ATS fields would only ever exist on newly discovered jobs. country
+            # is refreshed too, so a job reclassified by an alias or country-detection fix stops
+            # showing up under its stale market on the next scheduled run.
             refresh = {"last_seen": iso(), "city_key": j["city_key"]}
+            if j.get("country"):
+                refresh["country"] = j["country"]
             for f in ("ats", "ats_board", "apply_url"):
                 if j.get(f):
                     refresh[f] = j[f]
@@ -646,7 +709,10 @@ async def run_source(src, queries):
     fn = FETCHERS.get(src["source_id"])
     need = src.get("env_key")
     need = [need] if isinstance(need, str) else (need or [])
-    if need and not all(await integration_value(k) for k in need):
+    if need and not all([await integration_value(k) for k in need]):
+        # A list comprehension, not a generator expression: `(await f(k) for k in need)` builds an
+        # async generator, and all() cannot iterate one. That raised TypeError on every source with
+        # an env_key, killing the /api/jobs/refresh background task mid-run.
         await db.sources.update_one({"source_id": src["source_id"]}, {"$set": {"status": "not_connected", "last_run": iso()}})
         return 0
     try:

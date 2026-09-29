@@ -26,15 +26,13 @@ async def main():
     changed = rekeyed = reflagged = 0
     async for j in db.jobs.find({}, NOID):
         loc = j.get("location") or ""
-        city = (loc.split(",")[0] if loc else "").strip()
-        new_key = S.normalize_city(city) or j.get("city_key") or ""
+        # Single source of truth, shared with mk(), so a rule added there applies to stored rows too.
+        city, new_key, new_country = S.resolve_location(loc, j.get("title") or "")
         sets = {}
         if new_key != (j.get("city_key") or ""):
             sets["city_key"] = new_key
             changed += 1
-        # The Saudi city aliases also make country detection stronger.
-        new_country = j.get("country") or S.detect_country(f"{city} {j.get('title') or ''}")
-        if new_country != j.get("country"):
+        if new_country and new_country != j.get("country"):
             sets["country"] = new_country
             rekeyed += 1
         if sets:

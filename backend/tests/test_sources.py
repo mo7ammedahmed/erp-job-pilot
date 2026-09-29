@@ -6,6 +6,7 @@ These guard the two failure modes that actually shipped:
   - a fetcher that read a field the API does not return (Workable has no "location" key) stored
     jobs with no country at all, making them invisible to every country filter.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -180,3 +181,58 @@ def test_country_filter_applies_to_every_work_mode():
         assert country_conds, f"work mode {mode!r} dropped the country filter: {conds}"
         # A user's own jobs stay visible regardless of the market filter.
         assert any("owner_user_id" in b for b in country_conds[0]["$or"]), country_conds
+
+
+def _mk_location(location):
+    return S.mk("x", "1", "Role", "Co", location, "https://example.com/1", "desc")
+
+
+def test_explicit_city_outranks_a_country_word_elsewhere_in_the_string():
+    """A recognised city must decide the country, not a stray country name in the same string.
+
+    Greenhouse published a Jensen Hughes role as "Abu Dhabi, Saudi Arabia". Scanning the whole
+    location string matched "saudi" and filed a UAE job under Saudi Arabia, so it leaked into the
+    Saudi job list.
+    """
+    assert _mk_location("Abu Dhabi, Saudi Arabia")["country"] == "AE"
+    assert _mk_location("Dubai, United Arab Emirates")["country"] == "AE"
+    assert _mk_location("Jeddah, Saudi Arabia")["country"] == "SA"
+
+
+def test_bare_city_name_identifies_its_market():
+    """A posting that names only the city still gets tagged, instead of being invisible to filters."""
+    assert _mk_location("Riyadh")["country"] == "SA"
+    assert _mk_location("alkhubar")["country"] == "SA"
+
+
+def test_city_aliases_tolerate_real_world_spelling_variants():
+    """ATS feeds drop spaces and swap Latin transliterations, and both must still reach one city."""
+    for spelling, key in [("alkhubar", "khobar"), ("AL KHUBAR", "khobar"), ("Al Khobar", "khobar"),
+                          ("Buraydah", "buraidah"), ("Mecca", "makkah"), ("Medina", "madinah")]:
+        assert S.normalize_city(spelling) == key, f"{spelling!r} did not resolve to {key!r}"
+
+
+def test_country_names_do_not_become_cities():
+    """Boards that put a country in the city slot must not invent a city no filter can offer."""
+    for value in ["Saudi Arabia", "Saudi Arabia (KSA)", "Remote", "Worldwide", "KSA"]:
+        assert S.normalize_city(value) == "", f"{value!r} was turned into a city key"
+
+
+def test_city_named_after_its_country_still_resolves():
+    """Guards the not-a-city check against cities that share a country's name.
+
+    "kuwait" is both the country and the alias for Kuwait City; treating it as a country name made
+    the city unfindable, which validate_cities.py caught after the not-a-city rule was added.
+    """
+    assert S.normalize_city("Kuwait") == "kuwait-city"
+    assert _mk_location("Kuwait City, Kuwait")["country"] == "KW"
+
+
+def test_no_city_alias_mixes_arabic_and_latin_scripts():
+    """Mixed aliases shipped to the city picker as names like "الbudaiya" and "السalt"."""
+    arabic = re.compile(r"[؀-ۿݐ-ݿ]")
+    latin = re.compile(r"[A-Za-z]")
+    mixed = re.compile(r"[؀-ۿݐ-ݿ].*[A-Za-z]|[A-Za-z].*[؀-ۿݐ-ݿ]")
+    offenders = [a for aliases in S.CITY_INDEX.values() for a in aliases
+                 if arabic.search(a) and latin.search(a) and mixed.search(a)]
+    assert not offenders, f"mixed-script city aliases: {offenders}"
