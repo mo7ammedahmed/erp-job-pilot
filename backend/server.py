@@ -13,10 +13,12 @@ from r_integrations import router as integ_router, _scan_gmail_inbox
 from r_admin import router as admin_router
 from r_phase2 import router as phase2_router
 from r_coach import router as coach_router
+from r_apply import router as apply_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 app = FastAPI(title="JobPilot API")
-for r in (auth_router, cv_router, jobs_router, apps_router, integ_router, admin_router, phase2_router, coach_router):
+for r in (auth_router, cv_router, jobs_router, apps_router, integ_router, admin_router, phase2_router, coach_router,
+          apply_router):
     app.include_router(r)
 
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=os.environ["CORS_ORIGINS"].split(","),
@@ -97,6 +99,8 @@ async def seed():
     await db.reminders.create_index([("status", 1), ("deliver_at", 1)])
     await db.login_attempts.create_index("identifier")
     await db.applications.create_index([("user_id", 1), ("job_id", 1)])
+    await db.apply_runs.create_index([("user_id", 1), ("created_at", -1)])
+    await db.apply_profiles.create_index("user_id", unique=True)
     for p in DEFAULT_PLANS:
         await db.plans.update_one({"plan_id": p["plan_id"]}, {"$setOnInsert": p}, upsert=True)
     for s in DEFAULT_SOURCES:

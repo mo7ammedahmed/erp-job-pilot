@@ -5,7 +5,7 @@ import asyncio
 import hashlib
 from datetime import datetime, timezone
 import httpx
-from core import db, iso, uid, NOID, logger, notify, get_plan, send_email, email_layout
+from core import db, iso, uid, NOID, logger, notify, get_plan, send_email, email_layout, integration_value
 
 COUNTRY_NAMES = {"SA": "Saudi Arabia", "AE": "United Arab Emirates", "QA": "Qatar", "KW": "Kuwait", "BH": "Bahrain", "OM": "Oman",
                  "EG": "Egypt", "JO": "Jordan", "LB": "Lebanon", "IQ": "Iraq", "MA": "Morocco", "TN": "Tunisia", "TR": "Turkey",
@@ -125,13 +125,126 @@ CITY_INDEX = {
     # --- giga-project locations that appear as "city" in postings ---
     "qiddiya": ["qiddiya", "al qiddiya", "القدية"],
     "amaala": ["amaala", "al amaala", "العمالة"],
-    # --- other markets ---
-    "dubai": ["dubai", "دبي"], "abu-dhabi": ["abu dhabi", "أبوظبي"],
-    "sharjah": ["sharjah", "الشارقة"], "doha": ["doha", "الدوحة"], "kuwait-city": ["kuwait city", "kuwait", "الكويت"],
-    "manama": ["manama", "المنامة"], "muscat": ["muscat", "مسقط"], "cairo": ["cairo", "القاهرة"],
-    "alexandria": ["alexandria", "الإسكندرية"], "amman": ["amman", "عمّان", "عمان"], "beirut": ["beirut", "بيروت"],
-    "baghdad": ["baghdad", "بغداد"], "casablanca": ["casablanca", "الدار البيضاء"], "istanbul": ["istanbul", "إسطنبول"],
-    "london": ["london"], "new-york": ["new york", "nyc"], "berlin": ["berlin"], "paris": ["paris"],
+    # --- non-Saudi markets are generated from MARKET_CITIES below ---
+}
+
+# Major cities per non-Saudi market, so every country the app can filter on has a real city list
+# instead of a handful of hardcoded names. Aliases include the spellings that actually appear in
+# job postings (with/without the definite article, diacritics dropped, native script where common).
+# A short alias is only safe here because normalize_city() matches on word boundaries and longest
+# alias first, so e.g. "cairo" cannot be shadowed by a shorter entry.
+MARKET_CITIES = {
+    "AE": {
+        "dubai": ["dubai", "دبي"], "abu-dhabi": ["abu dhabi", "abudhabi", "أبوظبي"],
+        "sharjah": ["sharjah", "الشارقة"], "al-ain": ["al ain", "ain", "العين"],
+        "ajman": ["ajman", "عجمان"], "ras-al-khaimah": ["ras al khaimah", "رأس الخيمة"],
+        "fujairah": ["fujairah", "فجيرة"], "umm-al-quwain": ["umm al quwain", "أم القيوين"],
+    },
+    "QA": {
+        "doha": ["doha", "الدوحة"], "al-rayyan": ["al rayyan", "الريان"], "al-wakrah": ["al wakrah", "الوكرة"],
+        "al-khor": ["al khor", "الخور"], "lusail": ["lusail", "لوسيل"], "al-daayen": ["al daayen", "الظعاين"],
+        "dukhan": ["dukhan", "دخان"],
+    },
+    "KW": {
+        "kuwait-city": ["kuwait city", "kuwait", "مدينة الكويت", "الكويت"],
+        "hawalli": ["hawalli", "حولي"], "salmiya": ["salmiya", "سالمية"], "farwaniya": ["farwaniya", "الفروانية"],
+        "jahra": ["jahra", "الجهراء"], "mangaf": ["mangaf", "منقف"], "ahmadi": ["ahmadi", "ahmedi", "الأحمدي"],
+        "fahaheel": ["fahaheel", "الفحيحيل"],
+    },
+    "BH": {
+        "manama": ["manama", "المنامة"], "muharraq": ["muharraq", "المحرق"], "riffa": ["riffa", "الرفاع"],
+        "isa-town": ["isa town", "عيسى town", "عيسا"], "saitiya": ["saitiya", "سعدية"], "budaiya": ["budaiya", "الbudaiya", "بودايه"],
+        "hamad-town": ["hamad town", "مدينة حمد"],
+    },
+    "OM": {
+        "muscat": ["muscat", "maskat", "مسقط"], "salalah": ["salalah", "صلالة"], "sohar": ["sohar", "صحار"],
+        # "صور" is deliberately absent: it is also Sidon in Lebanon, and normalize_city() has no
+        # country to disambiguate with. Sidon keeps the Arabic alias; Sur is reachable in Latin.
+        "nizwa": ["nizwa", "نزوى"], "sur": ["sur"], "ibri": ["ibri", "إبراء"], "rustaq": ["rustaq", "رستاق"],
+        "khasab": ["khasab", "خصاب"],
+    },
+    "EG": {
+        "cairo": ["cairo", "القاهرة"], "giza": ["giza", "الجيزة"], "alexandria": ["alexandria", "الإسكندرية"],
+        "luxor": ["luxor", "الأقصر"], "aswan": ["aswan", "أسوان"], "port-said": ["port said", "بورسعيد"],
+        "suez": ["suez", "السويس"], "sharm-el-sheikh": ["sharm el sheikh", "sharm", "شرم الشيخ"],
+        "hurghada": ["hurghada", "الغردقة"], "mansoura": ["mansoura", "المنصورة"], "tanta": ["tanta", "طنطا"],
+        "asyut": ["asyut", "أسيوط"], "zagazig": ["zagazig", "الزقازيق"],
+    },
+    "JO": {
+        "amman": ["amman", "عمّان", "عمان"], "zarqa": ["zarqa", "الزرقاء"], "irbid": ["irbid", "إربد"],
+        "aqaba": ["aqaba", "العقبة"], "madaba": ["madaba", "مادبا"], "karak": ["karak", "الكرك"],
+        "salt": ["salt", "السalt", "سلط"],
+    },
+    "LB": {
+        "beirut": ["beirut", "بيروت"], "tripoli": ["tripoli", "طرابلس"], "sidon": ["sidon", "صور"],
+        "byblos": ["byblos", "جبيل"], "jounieh": ["jounieh", "جونية"], "zahle": ["zahle", "زحلة"],
+    },
+    "IQ": {
+        "baghdad": ["baghdad", "بغداد"], "basra": ["basra", "البصرة"], "mosul": ["mosul", "الموصل"],
+        "erbil": ["erbil", "أربيل"], "najaf": ["najaf", "النجف"], "karbala": ["karbala", "كربلاء"],
+        "kirkuk": ["kirkuk", "كركوك"], "nasiriyah": ["nasiriyah", "الناصرية"],
+    },
+    "TR": {
+        "istanbul": ["istanbul", "constantinople", "إسطنبول"], "ankara": ["ankara", "أنقرة"],
+        "izmir": ["izmir", "İzmir", "إزمير"], "bursa": ["bursa", "بورصة"], "antalya": ["antalya", "أنطاليا"],
+        "adana": ["adana", "أضنة"], "konya": ["konya", "قونية"], "gaziantep": ["gaziantep", "غازي عنتاب"],
+    },
+    "IN": {
+        "mumbai": ["mumbai", "bombay", "मुंबई"], "delhi": ["delhi", "new delhi", "नई दिल्ली", "दिल्ली"],
+        "bengaluru": ["bengaluru", "bangalore", "बेंगलुरु"], "hyderabad": ["hyderabad", "हैदराबाद"],
+        "chennai": ["chennai", "madras", "चेन्नई"], "pune": ["pune", "पुणे"], "kolkata": ["kolkata", "calcutta", "कोलकाता"],
+        "ahmedabad": ["ahmedabad", "अहमदाबाद"], "jaipur": ["jaipur", "जयपुर"],
+    },
+    "PK": {
+        "karachi": ["karachi", "کراچی"], "lahore": ["lahore", "لاہور"], "islamabad": ["islamabad", "اسلام آباد"],
+        "rawalpindi": ["rawalpindi", "راولپنڈی"], "peshawar": ["peshawar", "پشاور"], "quetta": ["quetta", "کوئٹہ"],
+        "multan": ["multan", "ملتان"], "gujranwala": ["gujranwala", "گوجرانوالہ"],
+    },
+    "PH": {
+        "manila": ["manila", "Maynila"], "quezon-city": ["quezon city", "quezon"], "makati": ["makati"],
+        "cebu-city": ["cebu city", "cebu"], "davao": ["davao", "davao city"], "bacoor": ["bacoor"],
+        "pasig": ["pasig"], "taguig": ["taguig"],
+    },
+    "US": {
+        "new-york": ["new york", "new york city", "nyc", "brooklyn", "manhattan"], "los-angeles": ["los angeles", "la"],
+        "chicago": ["chicago", "chicago il"], "houston": ["houston"], "phoenix": ["phoenix"],
+        "philadelphia": ["philadelphia", "philly"], "san-francisco": ["san francisco", "sf"],
+        "seattle": ["seattle"], "denver": ["denver"], "boston": ["boston"], "austin": ["austin"],
+        "miami": ["miami"], "dallas": ["dallas"], "washington-dc": ["washington dc", "washington", "dc"],
+        "atlanta": ["atlanta"],
+    },
+    "CA": {
+        "toronto": ["toronto"], "vancouver": ["vancouver"], "montreal": ["montreal", "montréal"],
+        "calgary": ["calgary"], "ottawa": ["ottawa"], "edmonton": ["edmonton"], "winnipeg": ["winnipeg"],
+        "quebec-city": ["quebec city", "québec", "quebec"], "hamilton": ["hamilton"], "halifax": ["halifax"],
+    },
+    "GB": {
+        "london": ["london"], "manchester": ["manchester"], "birmingham": ["birmingham"], "glasgow": ["glasgow"],
+        "leeds": ["leeds"], "bristol": ["bristol"], "edinburgh": ["edinburgh"], "liverpool": ["liverpool"],
+        "cardiff": ["cardiff"], "belfast": ["belfast"],
+    },
+    "DE": {
+        "berlin": ["berlin"], "munich": ["munich", "münchen", "muenchen"], "hamburg": ["hamburg"],
+        "frankfurt": ["frankfurt", "frankfurt am main"], "cologne": ["cologne", "köln", "koeln"],
+        "stuttgart": ["stuttgart"], "dusseldorf": ["düsseldorf", "dusseldorf", "duesseldorf"],
+        "leipzig": ["leipzig"], "dortmund": ["dortmund"], "essen": ["essen"], "bremen": ["bremen"],
+        "dresden": ["dresden"], "hanover": ["hanover", "hannover"], "nuremberg": ["nuremberg", "nürnberg"],
+    },
+    "FR": {
+        "paris": ["paris"], "marseille": ["marseille"], "lyon": ["lyon", "lyon"], "toulouse": ["toulouse"],
+        "nice": ["nice"], "nantes": ["nantes"], "montpellier": ["montpellier"], "strasbourg": ["strasbourg"],
+        "bordeaux": ["bordeaux"], "lille": ["lille"], "rennes": ["rennes"],
+    },
+    "AU": {
+        "sydney": ["sydney"], "melbourne": ["melbourne"], "brisbane": ["brisbane"], "perth": ["perth"],
+        "adelaide": ["adelaide"], "gold-coast": ["gold coast"], "canberra": ["canberra"], "hobart": ["hobart"],
+        "darwin": ["darwin"],
+    },
+    "MA": {
+        "casablanca": ["casablanca", "الدار البيضاء"], "rabat": ["rabat", "الرباط"],
+        "marrakech": ["marrakech", "marrakesh", "مراكش"], "tangier": ["tangier", "tanger", "طنجة"],
+        "agadir": ["agadir", "أكادير"], "fez": ["fez", "fes"], "meknes": ["meknes", "مكناس"], "oujda": ["oujda", "وجدة"],
+    },
 }
 # Keys that belong to Saudi Arabia. Used to derive the country hints and to build the city picker.
 SA_CITY_KEYS = {
@@ -149,6 +262,22 @@ SA_CITY_KEYS = {
     "najran", "sharurah", "damt", "umm-al-jimal",
     "qiddiya", "amaala",
 }
+
+# Every city key outside Saudi Arabia, grouped by the market it belongs to. The grouping drives
+# both the country hints and the city picker, so a city can never be claimed by two countries.
+MARKET_CITY_KEYS = {cc: set(cities) for cc, cities in MARKET_CITIES.items()}
+NON_SA_CITY_KEYS = set().union(*MARKET_CITY_KEYS.values()) if MARKET_CITY_KEYS else set()
+# Flatten country -> {city -> aliases} into city -> aliases. Note MARKET_CITIES is nested one level
+# deeper than CITY_INDEX, so the merge below must walk the inner dicts, not the country codes.
+MARKET_ALIASES = {city: aliases for cities in MARKET_CITIES.values() for city, aliases in cities.items()}
+
+# Fold the market cities into the flat lookup CITY_INDEX, and guard against a key that would
+# silently shadow a Saudi city (which would make Saudi filtering match the wrong market).
+_collisions = NON_SA_CITY_KEYS & set(SA_CITY_KEYS)
+if _collisions:
+    raise ValueError(f"City keys used by both Saudi and another market: {sorted(_collisions)}")
+for _k, _aliases in MARKET_ALIASES.items():
+    CITY_INDEX.setdefault(_k, list(_aliases))
 # Region and country words that are not cities but still identify a Saudi posting.
 _SA_EXTRA_HINTS = [
     "saudi", "saudi arabia", "ksa", "neom", "hijaz", "asir", "eastern province", "riyadh province",
@@ -165,6 +294,14 @@ _CITY_ALIASES_BY_LEN = sorted(_CITY_LOOKUP.items(), key=lambda kv: -len(kv[0]))
 COUNTRY_HINTS["SA"] = sorted(
     {a.lower() for k in SA_CITY_KEYS for a in (CITY_INDEX.get(k) or [])} | set(_SA_EXTRA_HINTS)
 )
+
+# Each market's own cities become country hints, so a job posted in "Manchester" is tagged GB even
+# though the posting never spells out the country. Existing hand-written hints (country names, "gulf")
+# are kept and these are added on top.
+for _cc, _keys in MARKET_CITY_KEYS.items():
+    hints = {a.lower() for k in _keys for a in (CITY_INDEX.get(k) or [])}
+    if hints:
+        COUNTRY_HINTS[_cc] = sorted(set(COUNTRY_HINTS.get(_cc) or []) | hints)
 
 
 def normalize_city(s):
@@ -198,6 +335,13 @@ DEFAULT_SOURCES = [
     {"source_id": "remotive", "name": "Remotive", "kind": "public_api", "env_key": None, "attribution": "Remote jobs by Remotive", "config": {}},
     {"source_id": "arbeitnow", "name": "Arbeitnow", "kind": "public_api", "env_key": None, "attribution": "Jobs by Arbeitnow", "config": {}},
     {"source_id": "adzuna", "name": "Adzuna", "kind": "partner_api", "env_key": ["ADZUNA_APP_ID", "ADZUNA_APP_KEY"], "attribution": "Jobs by Adzuna", "config": {}},
+    # Both boards below permit crawling in robots.txt; jobb.ae additionally publishes an RSS feed.
+    {"source_id": "jobb", "name": "Jobb.ae (UAE & GCC)", "kind": "rss_feed", "env_key": None, "attribution": "Jobs by Jobb.ae", "config": {}},
+    {"source_id": "jobhunt", "name": "JobHunt (UAE)", "kind": "html_index", "env_key": None, "attribution": "Jobs by JobHunt.ae", "config": {}},
+    # LinkedIn has no public jobs API and its User Agreement forbids scraping, so LinkedIn-listed
+    # roles reach JobPilot through the employers' own ATS boards above. A licensed aggregator that
+    # is allowed to redistribute LinkedIn postings can be added as a normal partner_api source:
+    # add its env_key here plus a f_<name> fetcher, and it plugs into run_source/upsert unchanged.
 ]
 
 
@@ -257,7 +401,7 @@ def _ts(v):
 
 
 async def f_careerjet(c, queries, cfg):
-    key, out = os.environ.get("CAREERJET_AFFID"), []
+    key, out = await integration_value("CAREERJET_AFFID"), []
     for q in queries:
         r = await c.get("http://public.api.careerjet.net/search", params={
             "affid": key, "keywords": q["keywords"], "location": q["city"] or COUNTRY_NAMES.get(q["country"], ""),
@@ -271,7 +415,7 @@ async def f_careerjet(c, queries, cfg):
 
 
 async def f_jooble(c, queries, cfg):
-    key, out = os.environ.get("JOOBLE_API_KEY"), []
+    key, out = await integration_value("JOOBLE_API_KEY"), []
     for q in queries:
         r = await c.post(f"https://jooble.org/api/{key}", json={"keywords": q["keywords"], "location": q["city"] or COUNTRY_NAMES.get(q["country"], "")})
         r.raise_for_status()
@@ -289,7 +433,8 @@ async def f_greenhouse(c, queries, cfg):
             continue
         for j in r.json().get("jobs", []):
             out.append(mk("greenhouse", j["id"], j.get("title"), b.replace("-", " ").title(), (j.get("location") or {}).get("name"),
-                          j.get("absolute_url"), j.get("content"), posted_at=_ts(j.get("updated_at"))))
+                          j.get("absolute_url"), j.get("content"), posted_at=_ts(j.get("updated_at")),
+                          ats="greenhouse", ats_board=b, apply_url=j.get("absolute_url")))
     return out
 
 
@@ -304,7 +449,8 @@ async def f_lever(c, queries, cfg):
             wt = (j.get("workplaceType") or "").lower()
             out.append(mk("lever", j["id"], j.get("text"), b.replace("-", " ").title(), cat.get("location"), j.get("hostedUrl"),
                           j.get("descriptionPlain") or j.get("description"), remote=wt if wt in ("remote", "hybrid") else "onsite",
-                          posted_at=_ts(j.get("createdAt"))))
+                          posted_at=_ts(j.get("createdAt")),
+                          ats="lever", ats_board=b, apply_url=f"{j.get('hostedUrl', '').rstrip('/')}/apply"))
     return out
 
 
@@ -321,7 +467,8 @@ async def f_ashby(c, queries, cfg):
             out.append(mk("ashby", j.get("id") or j.get("jobUrl"), j.get("title"), b.replace("-", " ").title(),
                           j.get("location"), j.get("jobUrl") or j.get("applyUrl"), j.get("descriptionPlain") or j.get("descriptionHtml"),
                           remote=wt if wt in ("remote", "hybrid") else ("remote" if j.get("isRemote") else "onsite"),
-                          posted_at=_ts(j.get("publishedAt"))))
+                          posted_at=_ts(j.get("publishedAt")),
+                          ats="ashby", ats_board=b, apply_url=j.get("applyUrl") or j.get("jobUrl")))
     return out
 
 
@@ -345,7 +492,8 @@ async def f_workable(c, queries, cfg):
                           j.get("url") or j.get("shortlink"), j.get("full_description") or j.get("description"),
                           country=(loc.get("countryCode") or j.get("country_code")),
                           remote="remote" if (j.get("telecommuting") or loc.get("telecommuting")) else "onsite",
-                          posted_at=_ts(j.get("published_on") or j.get("created_at"))))
+                          posted_at=_ts(j.get("published_on") or j.get("created_at")),
+                          ats="workable", ats_board=b, apply_url=j.get("url") or j.get("shortlink")))
     return out
 
 
@@ -372,7 +520,9 @@ async def f_smartrecruiters(c, queries, cfg):
             city = ", ".join(x for x in (loc.get("city"), loc.get("region"), loc.get("country")) if x)
             out.append(mk("smartrecruiters", p.get("id"), p.get("name"), (p.get("company") or {}).get("name"), city,
                           f"https://jobs.smartrecruiters.com/{b}/{p.get('id')}", desc,
-                          remote="remote" if loc.get("remote") else "onsite", posted_at=_ts(p.get("releasedDate"))))
+                          remote="remote" if loc.get("remote") else "onsite", posted_at=_ts(p.get("releasedDate")),
+                          ats="smartrecruiters", ats_board=b,
+                          apply_url=f"https://jobs.smartrecruiters.com/{b}/{p.get('id')}"))
     return out
 
 
@@ -395,7 +545,7 @@ async def f_arbeitnow(c, queries, cfg):
 
 
 async def f_adzuna(c, queries, cfg):
-    app_id, key, out = os.environ.get("ADZUNA_APP_ID"), os.environ.get("ADZUNA_APP_KEY"), []
+    app_id, key, out = await integration_value("ADZUNA_APP_ID"), await integration_value("ADZUNA_APP_KEY"), []
     supported = {"GB": "gb", "US": "us", "IN": "in", "DE": "de", "AU": "au", "CA": "ca", "FR": "fr", "NL": "nl", "SG": "sg", "ZA": "za"}
     for q in queries:
         cc = supported.get(q["country"])
@@ -411,8 +561,56 @@ async def f_adzuna(c, queries, cfg):
     return out
 
 
+async def f_jobb_rss(c, queries, cfg):
+    """jobb.ae publishes an RSS 2.0 feed for its UAE/GCC listings and permits crawling in robots.txt."""
+    r = await c.get("https://jobb.ae/feed/")
+    r.raise_for_status()
+    out = []
+    for item in re.findall(r"<item>(.*?)</item>", r.text, re.S):
+        def tag(t):
+            m = re.search(rf"<{t}[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</{t}>", item, re.S)
+            return strip_html(m.group(1)) if m else ""
+        title, link = tag("title"), tag("link")
+        if not title or not link:
+            continue
+        # The feed has no location element: the site puts it in a trailing "(City, Emirate, UAE)"
+        # on the title, e.g. "Procurement Executive - Immediate Joiner (Al Ain, Abu Dhabi, UAE)".
+        loc = "UAE"
+        m = re.search(r"\s*\(([^()]{3,60})\)\s*$", title)
+        if m:
+            loc = m.group(1).strip()
+            title = title[:m.start()].strip()
+        out.append(mk("jobb", link, title, tag("dc:creator"), loc, link,
+                      tag("description"), posted_at=_ts(tag("pubDate"))))
+    return out
+
+
+async def f_jobhunt(c, queries, cfg):
+    """jobhunt.ae allows all crawlers except its app/admin paths (robots.txt `User-agent: *`)."""
+    r = await c.get("https://jobhunt.ae/jobs")
+    r.raise_for_status()
+    out = []
+    for card in re.findall(r'<article class="card job-card.*?</article>', r.text, re.S):
+        def grab(pat, s=card):
+            m = re.search(pat, s, re.S)
+            return strip_html(m.group(1)) if m else ""
+        link = grab(r'href="(/job/[^"]+)"')
+        title = grab(r'<div class="job-title">(.*?)</div>')
+        if not title or not link:
+            continue
+        company = grab(r'<div class="company">(.*?)</div>')
+        meta = grab(r'<div class="meta">(.*?)</div>')
+        parts = [p.strip() for p in meta.split("·")]
+        city = parts[0] if parts else "UAE"
+        work = (parts[1] if len(parts) > 1 else "").lower()
+        remote = "remote" if "remote" in work else "onsite"
+        out.append(mk("jobhunt", link, title, company, city, f"https://jobhunt.ae{link}", f"{title} at {company}", remote=remote))
+    return out
+
+
 FETCHERS = {"careerjet": f_careerjet, "jooble": f_jooble, "greenhouse": f_greenhouse, "lever": f_lever, "ashby": f_ashby,
-            "workable": f_workable, "smartrecruiters": f_smartrecruiters, "remotive": f_remotive, "arbeitnow": f_arbeitnow, "adzuna": f_adzuna}
+            "workable": f_workable, "smartrecruiters": f_smartrecruiters, "remotive": f_remotive, "arbeitnow": f_arbeitnow,
+            "adzuna": f_adzuna, "jobb": f_jobb_rss, "jobhunt": f_jobhunt}
 
 
 async def upsert_jobs(items):
@@ -422,8 +620,13 @@ async def upsert_jobs(items):
             continue
         ex = await db.jobs.find_one({"fingerprint": j["fingerprint"]}, {"_id": 0, "job_id": 1})
         if ex:
-            await db.jobs.update_one({"job_id": ex["job_id"]}, {"$addToSet": {"sources": j["source"]},
-                                                                "$set": {"last_seen": iso(), "city_key": j["city_key"]}})
+            # Backfill apply metadata on every re-ingest: jobs are stored once and only refreshed,
+            # so without this the ATS fields would only ever exist on newly discovered jobs.
+            refresh = {"last_seen": iso(), "city_key": j["city_key"]}
+            for f in ("ats", "ats_board", "apply_url"):
+                if j.get(f):
+                    refresh[f] = j[f]
+            await db.jobs.update_one({"job_id": ex["job_id"]}, {"$addToSet": {"sources": j["source"]}, "$set": refresh})
         else:
             j.update(job_id=uid("job_"), sources=[j["source"]], fetched_at=iso(), last_seen=iso())
             await db.jobs.insert_one(j)
@@ -443,7 +646,7 @@ async def run_source(src, queries):
     fn = FETCHERS.get(src["source_id"])
     need = src.get("env_key")
     need = [need] if isinstance(need, str) else (need or [])
-    if need and not all(os.environ.get(k) for k in need):
+    if need and not all(await integration_value(k) for k in need):
         await db.sources.update_one({"source_id": src["source_id"]}, {"$set": {"status": "not_connected", "last_run": iso()}})
         return 0
     try:
@@ -470,15 +673,13 @@ async def run_all_sources():
 def job_query(f, user_id):
     conds = [{"$or": [{"owner_user_id": None}, {"owner_user_id": user_id}]}]
     country, remote = f.get("country"), f.get("remote")
-    if remote == "remote":
-        conds.append({"remote": "remote"})
-    elif remote in ("onsite", "hybrid"):
+    if remote in ("remote", "onsite", "hybrid"):
         conds.append({"remote": remote})
-        if country:
-            conds.append({"country": country})
-    elif country:
-        # A country filter means this country. Including country-less remote jobs here buried the
-        # Saudi results under remote roles from unrelated markets (e.g. a German job board).
+    if country:
+        # A country filter means this country, for every work mode. The remote branch used to skip
+        # it, so a Saudi + remote search returned 109 roles from 12 other markets (Germany, the UK,
+        # Qatar, ...) while "any work mode" correctly returned only the 85 Saudi ones. A user's own
+        # manually added jobs stay visible whatever the market filter says.
         conds.append({"$or": [{"country": country}, {"owner_user_id": user_id}]})
     if f.get("keywords"):
         ors = []

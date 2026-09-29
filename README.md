@@ -1,8 +1,9 @@
 # JobPilot
 
 A bilingual (Arabic RTL / English) "ERP for job seekers". It collects jobs from legal sources
-for a chosen country, scores each one against the user's real CV, tailors an honest ATS-ready
-CV and cover letter, and tracks every application and follow-up.
+across 20 markets for a chosen country, scores each one against the user's real CV, tailors an
+honest ATS-ready CV and cover letter, fills and submits applications on the employer's own form,
+and tracks every application and follow-up.
 
 Backend is **FastAPI** (not Flask) + MongoDB; frontend is **React** (CRA + craco) + shadcn/ui + Tailwind.
 
@@ -24,6 +25,14 @@ up an equivalent stack on a plain machine — no Docker required.
 ```powershell
 winget install --id Python.Python.3.12
 winget install --id MongoDB.Server      # installs the MongoDB service, which starts automatically
+```
+
+Auto-apply drives a real browser, so it also needs Chromium. This is a separate ~150 MB download
+and is only required for that feature; the rest of the app runs without it:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
 ### 2. Backend
@@ -113,6 +122,24 @@ provider and pointing it at that gateway's base URL.
 With no key at all, a provider that is in the shipped catalog still routes through the Emergent
 universal gateway when `EMERGENT_LLM_KEY` is set.
 
+### Admin-managed secrets
+
+Every integration key — the AI providers above, plus Careerjet, Jooble, Adzuna, Gmail/Google OAuth,
+Moyasar, Stripe and WhatsApp — can be set from **Admin → Integrations** instead of `.env`. Values are
+encrypted with `ENCRYPTION_KEY` before storage and are never returned to the browser; the API
+reports only a `configured` boolean and the panel shows a masked value.
+
+Resolution order is **stored secret, then environment variable, then empty**, so a key entered in
+the dashboard takes effect immediately without a redeploy. Clearing a stored value falls back to the
+environment. Keyless sources are shown as *No key needed* rather than *API key required*.
+
+### Image generation
+
+`Admin → AI → Image` configures the provider used to generate job imagery. It works with either
+Google Gemini (native `generativelanguage.googleapis.com` image generation) or any
+OpenAI-compatible `/images/generations` endpoint, and handles both base64 and URL responses. The
+selection is stored under the `ai_image` settings key and is audited on every change.
+
 ### When AI is unavailable
 
 CV parsing never fails the upload. `POST /api/cv/upload` stores the file first, then attempts to
@@ -134,6 +161,67 @@ CV vault.
 
 ---
 
+## Auto-apply
+
+Auto-apply fills and submits the **employer's real application form** in a headless browser
+(Playwright/Chromium), using the details in **Settings → Apply profile** plus the user's master CV.
+There is no separate "apply API": the browser opens the ATS page the job came from and drives the
+form on it.
+
+Supported platforms — anything else is refused rather than driven:
+
+| Platform | Forms are driven at |
+|---|---|
+| Greenhouse | the job page's inline form |
+| Lever | `jobs.lever.co/<board>/<id>/apply` |
+| Ashby | the job's `applyUrl` |
+| Workable | `apply.workable.com/<board>/j/<id>` |
+| SmartRecruiters | the job page's apply modal |
+
+Each job stores `apply_url`, `ats` and `ats_board` at ingest, so the form is addressed directly
+rather than re-derived. Jobs that predate this are backfilled on the next source refresh.
+
+### What it will and will not do
+
+Auto-apply writes to a third party on the user's behalf, so it is deliberately conservative:
+
+- **It never bypasses bot protection.** reCAPTCHA, hCaptcha, Turnstile, Cloudflare, DataDome and
+  PerimeterX all stop the run as `needs_human`. It does not attempt to solve or evade them.
+- **It never submits a half-filled form.** Any required field it cannot confidently populate also
+  returns `needs_human`, naming the field, rather than sending blanks.
+- **It is never silent.** Every run records a status, a reason, the final URL and a screenshot of
+  the form, and the tracker only advances on a verified submission. A blocked or failed run leaves
+  the application exactly where it was.
+- **It is always user-initiated.** Runs only start when the user presses the button. `POST
+  /api/apply/preview` fills the form and screenshots it *without* submitting, so the user can check
+  the data first.
+
+Outcomes are `submitted`, `filled` (preview only), `needs_human`, `unsupported`, `failed` and
+`unknown` (submitted but the confirmation could not be verified). Runs are capped per month per
+user to keep the shared egress IP from hammering a handful of ATS platforms.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET` / `PUT /api/apply/profile` | read and save the apply profile |
+| `POST /api/apply/preview` | fill the form, screenshot it, submit nothing |
+| `POST /api/apply` | fill and submit |
+| `GET /api/apply/runs` | run history with per-run evidence |
+
+Set `JOBPILOT_APPLY_EXTRA_HOSTS` (comma-separated) to add a self-hosted ATS to the allowlist; the
+defaults are unchanged.
+
+To check the browser engine without submitting anything to a real employer:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -X utf8 scripts\test_apply_engine.py
+```
+
+It serves mock ATS forms locally and asserts that fields are filled, that a CAPTCHA stops the run
+before submission, and that an unmodelled host is refused.
+
+---
+
 ## Tests
 
 ```powershell
@@ -149,15 +237,25 @@ export `REACT_APP_BACKEND_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `TEST_USER_EMAI
 `RUN_AI_TESTS=1` additionally enables the slow AI tests. The AI-heavy endpoints take 40–90s, so
 they are off by default.
 
+`backend/pytest.ini` pins `addopts = -n 2 --dist loadscope`, so the suite runs two workers in
+parallel by default. **Do not edit that line**; pass `-n 0` to force serial execution, or
+`-o addopts=` to drop it entirely.
+
+`test_apply_engine.py` is deliberately *not* part of this suite. It needs a live Chromium and a
+local HTTP server, and it must never submit to a real employer, so it runs standalone:
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 scripts\test_apply_engine.py
+```
+
 ---
 
-## Job sources and Saudi coverage
+## Job sources and market coverage
 
 Sources live in `db.sources` and are managed from **Admin → Source health**.
 
-**Keyless sources** (work with no account): the ATS feeds (Greenhouse, Lever, Ashby, Workable,
-SmartRecruiters), plus Remotive and Arbeitnow for remote roles. These need a **board token** — the
-employer's account slug, which is the path segment in their careers URL:
+**Keyless sources** (work with no account). The ATS feeds need a **board token** — the employer's
+account slug, which is the path segment in their careers URL:
 
 | Platform | Where the token is |
 |---|---|
@@ -167,6 +265,14 @@ employer's account slug, which is the path segment in their careers URL:
 | Ashby | `jobs.ashbyhq.com/<board>` |
 | SmartRecruiters | `jobs.smartrecruiters.com/<board>` |
 
+The remaining keyless sources need no token and cover whole markets:
+
+| Source | Scope |
+|---|---|
+| Remotive, Arbeitnow | remote roles, worldwide |
+| Jobb.ae | Saudi/Gulf, via RSS |
+| JobHunt | UAE/Gulf aggregator |
+
 Board tokens are not guessable, so the **Test** button probes them without saving: it reports the
 job count and the Saudi share per token so you only add the ones that work. Testing does not modify
 the saved list; the field saves when you click away.
@@ -175,12 +281,38 @@ the saved list; the field saves when you click away.
 
 | Source | Variables | Saudi support |
 |---|---|---|
-| Careerjet | `CAREERJET_AFFID` | yes, strong coverage |
+| Careerjet | `CAREERJET_AFFID` | yes |
 | Jooble | `JOOBLE_API_KEY` | yes |
 | Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | **no** — Adzuna has no `sa` market |
 
-To get the widest Saudi coverage, add Careerjet and Jooble keys; the ATS feeds cover individual
-employers and are limited to boards you list.
+To widen Saudi coverage, add Careerjet and Jooble keys; the ATS feeds cover individual employers and
+are limited to the boards you list.
+
+### Cities and countries
+
+City matching is data-driven: `backend/sources.py` holds a canonical key per city with English and
+Arabic aliases, and both the country filter and the city picker read from it. That is currently
+**76 Saudi cities plus 182 cities across 19 other markets (258 keys total)**, with Mecca/Makkah and
+Medina/Madinah resolved to one key each.
+
+Matching is word-boundary based and longest-alias-first, so `Duba` is never swallowed by `Dubai` and
+`Al Ula` is never read as `Ula`. One deliberate trade-off: Arabic `صور` is both Sur (Oman) and Sidon
+(Lebanon), so Sidon keeps it and Sur is reachable in Latin script only.
+
+`validate_cities.py` enforces all of this, including that no alias maps to two cities and that every
+city detects its own market:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -X utf8 scripts\validate_cities.py
+```
+
+The frontend city list is generated from the backend, never hand-edited, so the two cannot drift:
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 scripts\gen_frontend_cities.py   # prints the block
+.\.venv\Scripts\python.exe -X utf8 scripts\patch_frontend_markets.py # splices it into constants.js
+```
 
 Useful scripts in `backend/scripts/`:
 
@@ -191,6 +323,13 @@ Useful scripts in `backend/scripts/`:
 | `apply_saudi_boards.py` | write the verified board list and run every source |
 | `retag_countries.py` | recompute country tags after changing detection |
 | `check_saudi_coverage.py` | verify the Saudi feed end to end over the API |
+| `validate_cities.py` | assert the city/alias data and cross-market detection |
+| `check_i18n.py` | assert no duplicate Arabic keys, no missing translations, no unwrapped copy |
+| `check_city_filter.py` | check the live `/jobs` city and country filters |
+| `gen_frontend_cities.py` | print the generated city list for the frontend |
+| `patch_frontend_markets.py` | splice that list into `constants.js` (idempotent) |
+| `test_apply_engine.py` | drive the apply engine against mock ATS forms |
+| `reset_login_lockout.py` | clear Mongo `login_attempts` after repeated test logins |
 
 ---
 
@@ -215,6 +354,7 @@ The default build contains no reference to `ap.emergent.sh` at all.
 
 ```
 backend/     FastAPI app: core.py (auth, plans, storage, email), r_*.py routers, ai.py, sources.py
+            apply.py (auto-apply browser engine), r_apply.py (its API)
 frontend/    CRA + craco React app, shadcn/ui components
 memory/      PRD and technical blueprint
 plan/        Product plan

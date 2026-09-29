@@ -47,6 +47,32 @@ undetected = [k for k in S.SA_CITY_KEYS
               if S.detect_country(S.CITY_INDEX[k][0]) != "SA"]
 check("every Saudi city detects country SA", not undetected, str(undetected[:5]))
 
+# --- non-Saudi markets -------------------------------------------------------
+# The market lists are large and hand-written, so they get the same treatment as Saudi: an alias
+# that is shadowed by another city, or a city that fails to detect its own country, would quietly
+# break filtering for that market.
+
+check("every non-SA key exists in CITY_INDEX",
+      all(S.CITY_INDEX.get(k) for k in S.NON_SA_CITY_KEYS))
+check("every non-SA city has an alias",
+      all(len(S.CITY_INDEX.get(k) or []) >= 1 for k in S.NON_SA_CITY_KEYS))
+
+# A country code must never be usable as a city key, or "Dubai" style lookups fall through to it.
+check("no country code is a city key", not (S.NON_SA_CITY_KEYS & set(S.MARKET_CITY_KEYS)))
+
+ns_broken = [(k, a) for k in S.NON_SA_CITY_KEYS for a in S.CITY_INDEX.get(k) or []
+             if S.normalize_city(a) != k]
+check("every non-SA alias resolves to its own city", not ns_broken, str(ns_broken[:5]))
+
+# Each market's cities must detect that market, never Saudi.
+ns_wrong = []
+for cc, keys in S.MARKET_CITY_KEYS.items():
+    for k in keys:
+        got = S.detect_country(S.CITY_INDEX[k][0])
+        if got != cc:
+            ns_wrong.append((cc, k, got))
+check("every non-SA city detects its own market", not ns_wrong, str(ns_wrong[:5]))
+
 # A non-Saudi city must not be pulled into SA by a short alias.
 for loc, want in [("Dubai, United Arab Emirates", "AE"), ("Berlin, Germany", "DE"),
                   ("Amman, Jordan", "JO"), ("Cairo, Egypt", "EG")]:

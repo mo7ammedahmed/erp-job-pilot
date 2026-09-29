@@ -3,6 +3,7 @@
 Writes the generated block to stdout; it is pasted into frontend/src/lib/constants.js.
 Keys are the backend canonical city keys, which is what the jobs filter matches on.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -65,12 +66,20 @@ DISPLAY_OVERRIDE = {
 }
 
 
+ARABIC_RE = re.compile(r"[؀-ۿݐ-ݿ]")
+
+
 def display(key, aliases):
     if key in DISPLAY_OVERRIDE:
         return DISPLAY_OVERRIDE[key]
-    ascii_names = [a for a in aliases if a.isascii()]
-    arabic = [a for a in aliases if not a.isascii()]
-    en = ascii_names[0] if ascii_names else key
+    # Classify by script, not by isascii(): "münchen", "köln" and "İzmir" are Latin but not ASCII,
+    # and treating them as Arabic put Latin text in the Arabic column of the city picker.
+    arabic = [a for a in aliases if ARABIC_RE.search(a)]
+    latin = [a for a in aliases if not ARABIC_RE.search(a)]
+    # Prefer a plain ASCII spelling when one exists, since that is what reads best in Latin script.
+    latin_names = [a for a in latin if a.isascii()] or latin
+    en = latin_names[0] if latin_names else key
+    # With no Arabic alias, fall back to the English name rather than a raw lowercase alias.
     ar = arabic[0] if arabic else en
     return (en, ar)
 
@@ -120,3 +129,20 @@ for region, keys in REGIONS:
     print(f"       {entries},")
 print("       ],")
 print(f"  // {len(by_key)} Saudi cities across {len(REGIONS)} regions", file=sys.stderr)
+
+# --- non-Saudi markets -------------------------------------------------------
+# Emitted from MARKET_CITIES so the frontend picker offers exactly the cities the backend can
+# match. Hand-maintaining this list is how the two drifted apart in the first place.
+COUNTRY_ORDER = ["AE", "QA", "KW", "BH", "OM", "EG", "JO", "LB", "IQ", "TR",
+                 "IN", "PK", "PH", "US", "CA", "GB", "DE", "FR", "AU", "MA"]
+print("  // non-Saudi markets, generated from backend MARKET_CITIES")
+for cc in COUNTRY_ORDER:
+    cities = S.MARKET_CITIES.get(cc) or {}
+    if not cities:
+        continue
+    entries = []
+    for key, aliases in cities.items():
+        en, ar = display(key, aliases)
+        entries.append(f'["{key}", "{titlecase(en)}", "{ar}"]')
+    print(f"  {cc}: [{', '.join(entries)}],")
+print(f"  // {len(S.NON_SA_CITY_KEYS)} cities across {len(COUNTRY_ORDER)} markets", file=sys.stderr)

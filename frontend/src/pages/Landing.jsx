@@ -43,9 +43,9 @@ export default function Landing() {
           </ul>
         </div>
         <div className="relative lg:col-span-6 jp-rise-2">
-          <img src={HERO} alt="Riyadh skyline" className="h-[420px] w-full rounded-2xl object-cover" />
+          <img src={HERO} alt={t("Riyadh skyline")} className="h-[420px] w-full rounded-2xl object-cover" />
           <div className="absolute bottom-5 start-5 end-5 rounded-xl border border-white/40 bg-white/85 p-4 backdrop-blur-xl sm:end-auto sm:w-80">
-            <div className="flex items-center justify-between"><div><div className="text-sm font-semibold">Senior Data Analyst</div><div className="text-xs text-slate-500">Riyadh · Hybrid</div></div>
+            <div className="flex items-center justify-between"><div><div className="text-sm font-semibold">{t("Senior Data Analyst")}</div><div className="text-xs text-slate-500">Riyadh · {t("Hybrid")}</div></div>
               <div className="rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-1 font-mono text-sm font-bold text-emerald-800">86</div></div>
             <div className="mt-3 flex flex-wrap gap-1">{["SQL", "Power BI", "Python"].map((s) => <span key={s} className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-800">{s}</span>)}
               <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-800">{t("missing")}: Arabic</span></div>

@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from typing import Optional
 from core import (db, iso, now, NOID, USER_PROJ, get_current_user, require_admin, audit, client_ip, usage_of, period,
-                  clear_auth_cookies, get_file, encrypt_str)
+                  clear_auth_cookies, get_file, encrypt_str, SECRETS_KEY, integration_secrets, integration_value)
 import ai as ai_providers
 from ai import MODEL_CATALOG, get_models, PROMPTS
 from sources import run_all_sources, run_source
@@ -105,11 +105,32 @@ async def admin_update_plan(plan_id: str, body: PlanIn, admin=Depends(require_ad
     return {"ok": True}
 
 
+# Where to obtain each API key, so the dashboard can link straight to the signup page instead of
+# making an admin go and search for it.
+KEY_SIGNUP_URLS = {
+    "CAREERJET_AFFID": "https://www.careerjet.com/partners/",
+    "JOOBLE_API_KEY": "https://jooble.org/api/about",
+    "ADZUNA_APP_ID": "https://developer.adzuna.com/manage/keys",
+    "ADZUNA_APP_KEY": "https://developer.adzuna.com/manage/keys",
+    "NVIDIA_API_KEY": "https://build.nvidia.com",
+}
+
+
 @router.get("/admin/sources")
 async def admin_sources(admin=Depends(require_admin)):
     items = await db.sources.find({}, NOID).to_list(50)
+    stored = await integration_secrets()
     for s in items:
         s["jobs"] = await db.jobs.count_documents({"sources": s["source_id"]})
+        # A source needs no key when env_key is None; surfacing that per key lets the dashboard
+        # say "no key needed" instead of the misleading "API key required" for public feeds.
+        need = s.get("env_key")
+        need = [need] if isinstance(need, str) else (need or [])
+        keys = [{"key": k, "set": bool(await integration_value(k, stored)),
+                 "signup": KEY_SIGNUP_URLS.get(k)} for k in need]
+        s["keys"] = keys
+        s["needs_key"] = bool(need)
+        s["keys_ready"] = all(k["set"] for k in keys) if need else True
     return items
 
 
@@ -204,8 +225,65 @@ INTEGRATIONS = [
 @router.get("/admin/integrations")
 async def admin_integrations(admin=Depends(require_admin)):
     from core import APP_URL
-    return [{"name": n, "keys": [{"key": k, "set": bool(os.environ.get(k))} for k in keys], "configured": all(os.environ.get(k) for k in keys[:2] if k),
-             "help": h, "url": f"{APP_URL}{path}" if path else None} for n, keys, h, path in INTEGRATIONS]
+    stored = await integration_secrets()
+    # Resolve every key once: `await` inside a generator expression yields an async generator,
+    # which `all()` cannot consume.
+    resolved = {k: await integration_value(k, stored) for _, ks, _, _ in INTEGRATIONS for k in ks}
+    return [{"name": n, "keys": [{"key": k, "set": bool(resolved.get(k))} for k in keys],
+              "configured": all(resolved.get(k) for k in keys[:2] if k),
+              "help": h, "url": f"{APP_URL}{path}" if path else None} for n, keys, h, path in INTEGRATIONS]
+
+
+class IntegrationKeyIn(BaseModel):
+    key: str
+    value: str = Field(default="", max_length=1000)
+
+
+@router.put("/admin/integrations/key")
+async def admin_set_integration_key(body: IntegrationKeyIn, admin=Depends(require_admin)):
+    """Store a deployment secret from the dashboard.
+
+    Values are Fernet-encrypted into db.settings and are never returned by any endpoint: the UI only
+    learns whether a key is set. An empty value clears the stored key and falls back to the
+    environment variable, so this can back out a bad entry without redeploying.
+    """
+    key = (body.key or "").strip()
+    if key not in {k for _, ks, _, _ in INTEGRATIONS for k in ks}:
+        raise HTTPException(400, f"Unknown integration key '{key}'")
+    stored = await integration_secrets()
+    if body.value.strip():
+        stored[key] = {"v": encrypt_str(body.value.strip())}
+    else:
+        stored.pop(key, None)
+    await db.settings.update_one({"key": SECRETS_KEY}, {"$set": {"value": stored}}, upsert=True)
+    await audit(admin["user_id"], "admin_integration_key_update", {"key": key, "cleared": not body.value.strip()})
+    return {"ok": True, "key": key, "set": bool(await integration_value(key, stored))}
+
+
+class ImageIn(BaseModel):
+    provider: str
+    model: str = Field(default="", max_length=120)
+
+
+@router.get("/admin/ai/image")
+async def admin_get_image(admin=Depends(require_admin)):
+    cfg = await ai_providers.image_settings()
+    return {"current": cfg, "providers": [p for p in ai_providers.PROVIDERS],
+            "configured": bool(await ai_providers.provider_key(cfg["provider"])),
+            "defaults": ai_providers.DEFAULT_IMAGE}
+
+
+@router.put("/admin/ai/image")
+async def admin_set_image(body: ImageIn, admin=Depends(require_admin)):
+    if body.provider not in ai_providers.PROVIDERS:
+        raise HTTPException(400, f"Unknown provider '{body.provider}'")
+    if not await ai_providers.provider_key(body.provider):
+        raise HTTPException(400, f"No API key configured for '{body.provider}'. Add one under AI providers first.")
+    model = body.model.strip() or ai_providers.DEFAULT_IMAGE["model"]
+    await db.settings.update_one({"key": ai_providers.IMAGE_SETTINGS_KEY},
+                                 {"$set": {"value": {"provider": body.provider, "model": model}}}, upsert=True)
+    await audit(admin["user_id"], "admin_image_update", {"provider": body.provider, "model": model})
+    return {"ok": True, "provider": body.provider, "model": model}
 
 
 @router.get("/admin/models")

@@ -11,7 +11,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from core import db, iso, now, parse_dt, uid, NOID, get_current_user, require_admin, get_plan, audit, client_ip, check_limit, inc_usage
 from ai import llm_json, validate_tailored, finalize_review
-from wa import wa_configured, wa_send_template, norm_phone, WA_VERIFY, WA_APP_SECRET, TPL_VERIFY
+from wa import wa_configured, wa_creds, wa_send_template, norm_phone, TPL_VERIFY
 from r_apps import get_app, event
 from r_cv import get_master
 
@@ -100,7 +100,7 @@ async def eval_runs(admin=Depends(require_admin)):
 @router.get("/whatsapp/status")
 async def wa_status(user=Depends(get_current_user)):
     plan = await get_plan(user)
-    return {"configured": wa_configured(), "plan_allows": plan["features"].get("whatsapp", False),
+    return {"configured": await wa_configured(), "plan_allows": plan["features"].get("whatsapp", False),
             "opted_in": bool(user.get("whatsapp_opt_in")), "phone": user.get("whatsapp_phone")}
 
 
@@ -110,7 +110,7 @@ class WaStart(BaseModel):
 
 @router.post("/whatsapp/start")
 async def wa_start(body: WaStart, user=Depends(get_current_user)):
-    if not wa_configured():
+    if not await wa_configured():
         raise HTTPException(503, "WhatsApp is not configured yet")
     if not (await get_plan(user))["features"].get("whatsapp"):
         raise HTTPException(402, {"code": "feature_locked", "kind": "whatsapp"})
@@ -154,7 +154,8 @@ async def wa_opt_out(user=Depends(get_current_user)):
 @router.get("/whatsapp/webhook")
 async def wa_webhook_verify(request: Request):
     q = request.query_params
-    if WA_VERIFY and q.get("hub.mode") == "subscribe" and q.get("hub.verify_token") == WA_VERIFY:
+    verify = (await wa_creds())["verify"]
+    if verify and q.get("hub.mode") == "subscribe" and q.get("hub.verify_token") == verify:
         return PlainTextResponse(q.get("hub.challenge", ""))
     raise HTTPException(403, "Verification failed")
 
@@ -165,9 +166,10 @@ SNOOZE = {"1h": 60, "1d": 1440, "1w": 10080}
 @router.post("/whatsapp/webhook")
 async def wa_webhook(request: Request):
     raw = await request.body()
-    if WA_APP_SECRET:
+    app_secret = (await wa_creds())["app_secret"]
+    if app_secret:
         sig = request.headers.get("x-hub-signature-256", "")
-        if not hmac.compare_digest(sig, "sha256=" + hmac.new(WA_APP_SECRET.encode(), raw, hashlib.sha256).hexdigest()):
+        if not hmac.compare_digest(sig, "sha256=" + hmac.new(app_secret.encode(), raw, hashlib.sha256).hexdigest()):
             raise HTTPException(403, "Bad signature")
     data = json.loads(raw or b"{}")
     for entry in data.get("entry", []):

@@ -57,7 +57,7 @@ function Avatar() {
   };
   return (
     <Card className="flex flex-col gap-4 sm:flex-row sm:items-center" data-testid="avatar-card">
-      <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-50">{src ? <img src={src} alt="avatar" className="h-full w-full object-cover" data-testid="avatar-image" /> : <ImagePlus className="h-6 w-6 text-emerald-800" />}</div>
+      <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-50">{src ? <img src={src} alt={t("Profile photo")} className="h-full w-full object-cover" data-testid="avatar-image" /> : <ImagePlus className="h-6 w-6 text-emerald-800" />}</div>
       <div className="flex-1 space-y-2"><div className="font-heading font-semibold">{t("AI profile avatar")}</div>
         <p className="text-xs text-slate-500">{t("Generate a professional, privacy-friendly avatar (no photo needed).")}</p>
         <div className="flex gap-2"><Input data-testid="avatar-style" value={style} onChange={(e) => setStyle(e.target.value)} />
@@ -159,6 +159,59 @@ function Privacy() {
   );
 }
 
+function ApplyProfile() {
+  const { t } = useI18n();
+  const [f, setF] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.get("/apply/profile").then(({ data }) => setF(data)).catch((e) => toast.error(errMsg(e)));
+  }, []);
+  if (!f) return null;
+  const set = (k) => (v) => setF({ ...f, [k]: v });
+  const save = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.put("/apply/profile", f);
+      setF(data); toast.success(t("Saved"));
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
+  };
+  return (
+    <Card className="space-y-4" data-testid="apply-profile-card">
+      <div>
+        <div className="font-heading font-semibold" data-testid="apply-profile-title">{t("Apply profile")}</div>
+        <p className="text-xs text-slate-500">
+          {t("These details are filled into employer application forms when you use auto-apply.")}
+        </p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={t("First name")}><Input data-testid="apply-first-name" value={f.first_name || ""} onChange={(e) => set("first_name")(e.target.value)} /></Field>
+        <Field label={t("Last name")}><Input data-testid="apply-last-name" value={f.last_name || ""} onChange={(e) => set("last_name")(e.target.value)} /></Field>
+        <Field label={t("Email")}><Input data-testid="apply-email" value={f.email || ""} onChange={(e) => set("email")(e.target.value)} /></Field>
+        <Field label={t("Phone")}><Input data-testid="apply-phone" value={f.phone || ""} onChange={(e) => set("phone")(e.target.value)} /></Field>
+        <Field label="LinkedIn"><Input data-testid="apply-linkedin" value={f.linkedin || ""} onChange={(e) => set("linkedin")(e.target.value)} /></Field>
+        <Field label={t("Location")}><Input value={f.location || ""} onChange={(e) => set("location")(e.target.value)} /></Field>
+      </div>
+      <Field label={t("Cover letter")}>
+        <textarea
+          data-testid="apply-cover-letter" rows={4} value={f.cover_letter || ""}
+          onChange={(e) => set("cover_letter")(e.target.value)}
+          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-700 focus:outline-none"
+        />
+      </Field>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox" data-testid="apply-attach-cv" checked={f.attach_cv !== false}
+          onChange={(e) => set("attach_cv")(e.target.checked)}
+        />
+        {t("Attach my master CV to applications")}
+      </label>
+      <Button onClick={save} disabled={busy} data-testid="apply-profile-save">
+        {busy ? <Spinner className="me-2" /> : null}{t("Save")}
+      </Button>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { t } = useI18n();
   const [sp] = useSearchParams();
@@ -171,7 +224,7 @@ export default function SettingsPage() {
       <PageHeader eyebrow={t("Settings")} title={t("Settings")} />
       <Tabs defaultValue={sp.get("gmail") ? "integrations" : "profile"}>
         <TabsList className="bg-white">{[["profile", "Profile"], ["integrations", "Integrations"], ["privacy", "Privacy & data"]].map(([k, l]) => <TabsTrigger key={k} value={k} data-testid={`settings-tab-${k}`}>{t(l)}</TabsTrigger>)}</TabsList>
-        <TabsContent value="profile" className="mt-4 space-y-4"><Profile /><Avatar /></TabsContent>
+        <TabsContent value="profile" className="mt-4 space-y-4"><Profile /><Avatar /><ApplyProfile /></TabsContent>
         <TabsContent value="integrations" className="mt-4"><Integrations /></TabsContent>
         <TabsContent value="privacy" className="mt-4"><Privacy /></TabsContent>
       </Tabs>

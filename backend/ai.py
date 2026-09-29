@@ -412,11 +412,91 @@ def compact(v):
     return v
 
 
-# ---------- image generation (Nano Banana) ----------
+# ---------- image generation ----------
+# The provider and model are chosen in Admin > AI > Image, not hardcoded, and the key is taken from
+# the same admin-managed credential store as the chat tiers. This used to call the Emergent gateway
+# through `LlmChat.send_message_multimodal_response`, which the local shim cannot do, so image
+# generation always failed with "Image generation needs the Emergent LLM gateway".
+IMAGE_SETTINGS_KEY = "ai_image"
+DEFAULT_IMAGE = {"provider": "gemini", "model": "gemini-3.1-flash-image-preview"}
+
+# Providers whose image API is the OpenAI-style POST {base}/images/generations -> data[].b64_json.
+# Everything else is called through Gemini's native :generateContent with responseModalities IMAGE.
+_OPENAI_IMAGE_APIS = {"openai", "custom"}
+
+
+async def image_settings():
+    s = await db.settings.find_one({"key": IMAGE_SETTINGS_KEY}, NOID)
+    return {**DEFAULT_IMAGE, **((s or {}).get("value") or {})}
+
+
+def _mime_from_b64(b64):
+    """Sniff the subtype from the decoded magic bytes; the APIs do not always label it."""
+    try:
+        head = base64.b64decode(b64[:32], validate=False)[:12]
+    except Exception:
+        return "image/png"
+    if head.startswith(b"\x89PNG"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
+
+
+async def _image_via_openai(base, key, model, prompt):
+    async with httpx.AsyncClient(timeout=180) as c:
+        r = await c.post(f"{base}/images/generations",
+                         headers={"Authorization": f"Bearer {key}"},
+                         json={"model": model, "prompt": prompt, "n": 1})
+    if r.status_code >= 400:
+        raise RuntimeError(f"{model} returned {r.status_code}: {r.text[:300]}")
+    data = (r.json() or {}).get("data") or []
+    if not data:
+        raise RuntimeError(f"{model} returned no image")
+    d = data[0]
+    if d.get("b64_json"):
+        return base64.b64decode(d["b64_json"]), _mime_from_b64(d["b64_json"])
+    if d.get("url"):
+        async with httpx.AsyncClient(timeout=120, follow_redirects=True) as c:
+            img = await c.get(d["url"])
+        img.raise_for_status()
+        return img.content, img.headers.get("content-type", "image/png")
+    raise RuntimeError(f"{model} returned neither b64_json nor url")
+
+
+async def _image_via_gemini(key, model, prompt):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    async with httpx.AsyncClient(timeout=180) as c:
+        r = await c.post(url, headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+                         json={"contents": [{"parts": [{"text": prompt}]}],
+                               "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}})
+    if r.status_code >= 400:
+        raise RuntimeError(f"{model} returned {r.status_code}: {r.text[:300]}")
+    parts = ((r.json() or {}).get("candidates") or [{}])[0].get("content", {}).get("parts") or []
+    for p in parts:
+        inline = p.get("inlineData") or p.get("inline_data")
+        if inline and inline.get("data"):
+            return base64.b64decode(inline["data"]), inline.get("mimeType") or inline.get("mime_type") or "image/png"
+    raise RuntimeError(f"{model} returned no image data")
+
+
 async def generate_image(prompt):
-    chat = LlmChat(api_key=LLM_KEY, session_id=uuid.uuid4().hex, system_message="You create clean, professional images.")
-    chat.with_model("gemini", "gemini-3.1-flash-image-preview").with_params(modalities=["image", "text"])
-    _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt))
-    if not images:
-        raise RuntimeError("No image returned")
-    return base64.b64decode(images[0]["data"]), images[0].get("mime_type", "image/png")
+    cfg = await image_settings()
+    provider, model = cfg["provider"], cfg["model"]
+    if provider not in PROVIDERS:
+        raise RuntimeError(f"Unknown image provider '{provider}'. Set it under Admin > AI > Image.")
+    key = await provider_key(provider)
+    if not key:
+        raise RuntimeError(
+            f"No API key for image provider '{provider}'. Add one under Admin > AI > Providers, or set {PROVIDERS[provider]['env']}."
+        )
+    if provider in _OPENAI_IMAGE_APIS:
+        base = await provider_base_url(provider)
+        return await _image_via_openai(base, key, model, prompt)
+    if provider == "gemini":
+        return await _image_via_gemini(key, model, prompt)
+    raise RuntimeError(
+        f"Provider '{provider}' has no image API. Use gemini, openai, or a custom OpenAI-compatible endpoint."
+    )

@@ -199,6 +199,34 @@ async def notify(user_id, title, body="", link="", kind="info"):
                                        "link": link, "kind": kind, "read": False, "created_at": iso()})
 
 
+# ---------- deployment secrets (admin-managed, encrypted at rest) ----------
+# Integration credentials (Moyasar, WhatsApp, Gmail, Stripe, and the job-board API keys) are stored
+# as Fernet ciphertext in db.settings so an operator can add them from the dashboard instead of
+# editing the deployment environment. Resolution order is the stored value first, then the
+# environment variable, so an existing .env-only setup keeps working untouched. Values are never
+# returned by any endpoint: callers that render the dashboard get a boolean "is it set" instead.
+SECRETS_KEY = "integration_secrets"
+
+
+async def integration_secrets():
+    return (await db.settings.find_one({"key": SECRETS_KEY}, NOID) or {}).get("value") or {}
+
+
+async def integration_value(key, stored=None):
+    stored = stored if stored is not None else await integration_secrets()
+    entry = stored.get(key) or {}
+    if isinstance(entry, dict) and entry.get("v"):
+        try:
+            val = decrypt_str(entry["v"])
+            # An empty stored value means "not configured" rather than "set to nothing",
+            # so it must not shadow a usable environment variable.
+            if val:
+                return val
+        except Exception as e:
+            logger.error(f"Could not decrypt stored secret {key}: {e}")
+    return (os.environ.get(key) or "").strip()
+
+
 # ---------- object storage (encrypted at rest) ----------
 # Two backends: the Emergent object store (hosted) and a local disk directory (offline dev).
 # Pick with LOCAL_STORAGE=1. Files are always Fernet-encrypted before they hit either backend.

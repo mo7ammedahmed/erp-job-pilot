@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Search, Plus, RefreshCw, MapPin, Bookmark, X, Bell } from "lucide-react";
@@ -84,13 +84,34 @@ export default function Jobs() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [alerts, setAlerts] = useState(true);
-  const set = (k) => (v) => setF((p) => ({ ...p, [k]: v }));
   const params = (ff, p) => Object.fromEntries(Object.entries({ ...ff, page: p }).filter(([, v]) => v !== "" && v !== ANY));
   const load = useCallback(async (ff, p = 1) => {
     const { data: d } = await api.get("/jobs", { params: params(ff, p) });
     setData((prev) => (p > 1 && prev ? { ...d, items: [...prev.items, ...d.items] } : d));
     setPage(p);
   }, []);
+  // Filters re-query on their own: immediately for the discrete selects, and once typing pauses
+  // for the text fields. Requiring a separate Search click made the panel look broken, because
+  // the list kept showing the previous country or city while the field already showed the new one.
+  const timer = useRef(null);
+  const reload = useCallback((next, delay) => {
+    if (timer.current) clearTimeout(timer.current);
+    if (delay) timer.current = setTimeout(() => load(next), delay);
+    else load(next);
+  }, [load]);
+  const setAndApply = (k, v, delay) => {
+    const next = { ...f, [k]: v };
+    // Switching country re-lists the city suggestions, so a city left over from the previous
+    // country would filter the new market down to nothing.
+    if (k === "country" && next.city) {
+      const known = (CITIES[v] || []).some(([key, en, ar]) =>
+        [key, en, ar].some((x) => x && String(x).toLowerCase() === next.city.toLowerCase()));
+      if (!known) next.city = "";
+    }
+    setF(next);
+    reload(next, delay);
+  };
+  useEffect(() => () => timer.current && clearTimeout(timer.current), []);
   const loadSearches = () => api.get("/searches").then((r) => setSearches(r.data));
   useEffect(() => {
     loadSearches();
@@ -129,17 +150,17 @@ export default function Jobs() {
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         <aside className="space-y-4">
           <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-            <Field label={t("Keywords")}><Input data-testid="filter-keywords" placeholder={t("e.g. data analyst, SQL")} value={f.keywords} onChange={(e) => set("keywords")(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load(f)} /></Field>
-            <Field label={t("Country")}><SimpleSelect testid="filter-country" value={f.country} onChange={set("country")} options={COUNTRIES.map((x) => [x[0], lang === "ar" ? x[2] : x[1]])} /></Field>
+            <Field label={t("Keywords")}><Input data-testid="filter-keywords" placeholder={t("e.g. data analyst, SQL")} value={f.keywords} onChange={(e) => setAndApply("keywords", e.target.value, 400)} onKeyDown={(e) => e.key === "Enter" && load(f)} /></Field>
+            <Field label={t("Country")}><SimpleSelect testid="filter-country" value={f.country} onChange={(v) => setAndApply("country", v)} options={COUNTRIES.map((x) => [x[0], lang === "ar" ? x[2] : x[1]])} /></Field>
             <Field label={t("City")}>
-              <Input data-testid="filter-city" list="city-suggestions" value={f.city} onChange={(e) => set("city")(e.target.value)} placeholder={t("e.g. Riyadh")} />
+              <Input data-testid="filter-city" list="city-suggestions" value={f.city} onChange={(e) => setAndApply("city", e.target.value, 400)} placeholder={t("e.g. Riyadh")} />
               <datalist id="city-suggestions">{(CITIES[f.country] || []).map(([k, en, ar]) => <option key={k} value={lang === "ar" ? ar : en} />)}</datalist>
             </Field>
-            <Field label={t("Work mode")}><SimpleSelect testid="filter-remote" value={f.remote} onChange={set("remote")} options={[[ANY, t("Any")], ["remote", t("remote")], ["onsite", t("onsite")], ["hybrid", t("hybrid")]]} /></Field>
-            <Field label={t("Seniority")}><SimpleSelect testid="filter-seniority" value={f.seniority || ANY} onChange={(v) => set("seniority")(v === ANY ? "" : v)} options={[[ANY, t("Any")], ["junior", t("Junior")], ["senior", t("Senior")], ["lead", t("Lead")], ["manager", t("Manager")], ["director", t("Director")]]} /></Field>
-            <Field label={t("Minimum salary")}><Input data-testid="filter-min-salary" type="number" value={f.min_salary} onChange={(e) => set("min_salary")(e.target.value)} /></Field>
-            <Field label={t("Source")}><SimpleSelect testid="filter-source" value={f.source} onChange={set("source")} options={[[ANY, t("Any")], ...sources.map((s) => [s.source_id, s.name]), ["manual", t("Added by me")]]} /></Field>
-            <Field label={t("AI verdict")}><SimpleSelect testid="filter-verdict" value={f.verdict} onChange={set("verdict")} options={[[ANY, t("Any")], ["apply", t("Apply")], ["maybe", t("Maybe")], ["skip", t("Skip")]]} /></Field>
+            <Field label={t("Work mode")}><SimpleSelect testid="filter-remote" value={f.remote} onChange={(v) => setAndApply("remote", v)} options={[[ANY, t("Any")], ["remote", t("remote")], ["onsite", t("onsite")], ["hybrid", t("hybrid")]]} /></Field>
+            <Field label={t("Seniority")}><SimpleSelect testid="filter-seniority" value={f.seniority || ANY} onChange={(v) => setAndApply("seniority", v === ANY ? "" : v)} options={[[ANY, t("Any")], ["junior", t("Junior")], ["senior", t("Senior")], ["lead", t("Lead")], ["manager", t("Manager")], ["director", t("Director")]]} /></Field>
+            <Field label={t("Minimum salary")}><Input data-testid="filter-min-salary" type="number" value={f.min_salary} onChange={(e) => setAndApply("min_salary", e.target.value, 400)} /></Field>
+            <Field label={t("Source")}><SimpleSelect testid="filter-source" value={f.source} onChange={(v) => setAndApply("source", v)} options={[[ANY, t("Any")], ...sources.map((s) => [s.source_id, s.name]), ["manual", t("Added by me")]]} /></Field>
+            <Field label={t("AI verdict")}><SimpleSelect testid="filter-verdict" value={f.verdict} onChange={(v) => setAndApply("verdict", v)} options={[[ANY, t("Any")], ["apply", t("Apply")], ["maybe", t("Maybe")], ["skip", t("Skip")]]} /></Field>
             <div className="flex gap-2 pt-1">
               <Button data-testid="filter-apply-button" onClick={() => load(f)} className="flex-1 bg-emerald-900 hover:bg-emerald-800"><Search className="me-2 h-4 w-4" />{t("Search")}</Button>
               <Button data-testid="save-search-button" variant="outline" onClick={() => setSaveOpen(true)} title={t("Save search")}><Bookmark className="h-4 w-4" /></Button>

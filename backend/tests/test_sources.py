@@ -155,5 +155,28 @@ def test_country_filter_does_not_leak_other_markets():
             nb = await db.jobs.count_documents(city_q(b))
             assert na == nb, f"{a!r} matched {na} jobs but {b!r} matched {nb}"
 
+        # The same must hold for work-mode filters: Saudi + remote returns Saudi jobs only.
+        sa_remote = S.job_query({"country": "SA", "remote": "remote"}, "user_x")
+        leaked = [c for c in await db.jobs.distinct("country", sa_remote) if c and c != "SA"]
+        assert not leaked, f"Saudi + remote leaked other markets: {leaked}"
+
     import asyncio
-    asyncio.run(_verify())
+    from conftest import run
+    run(_verify())
+
+
+def test_country_filter_applies_to_every_work_mode():
+    """country=SA must constrain the results whatever the work-mode filter is.
+
+    The remote branch used to skip the country condition entirely, so "Saudi Arabia" + "remote"
+    returned 109 roles from 12 other markets (Germany, the UK, Qatar, ...) while "any work mode"
+    correctly returned only the 7 Saudi remote ones.
+    """
+    for mode in ["remote", "onsite", "hybrid"]:
+        conds = S.job_query({"country": "SA", "remote": mode}, "user_x")["$and"]
+        assert {"remote": mode} in conds, conds
+        country_conds = [c for c in conds if isinstance(c.get("$or"), list)
+                         and {"country": "SA"} in c["$or"]]
+        assert country_conds, f"work mode {mode!r} dropped the country filter: {conds}"
+        # A user's own jobs stay visible regardless of the market filter.
+        assert any("owner_user_id" in b for b in country_conds[0]["$or"]), country_conds

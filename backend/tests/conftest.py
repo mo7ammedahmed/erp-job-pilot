@@ -7,6 +7,7 @@ environment variables to override everything (e.g. to run against a hosted previ
 """
 
 import os
+import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -26,3 +27,15 @@ DEFAULTS = {
 
 for key, value in DEFAULTS.items():
     os.environ.setdefault(key, value)
+
+
+# ---------- shared event loop for in-process tests ----------
+# The Mongo client in core is created once and binds to the first event loop it is used on. If one
+# test file calls asyncio.run() and another builds its own loop, the second one fails with
+# "event loop is closed". In-process coroutines should go through run() instead of asyncio.run().
+_LOOP = asyncio.new_event_loop()
+
+
+def run(coro):
+    """Run a coroutine on the suite-wide loop. Use this instead of asyncio.run()."""
+    return _LOOP.run_until_complete(coro)

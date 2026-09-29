@@ -42,17 +42,36 @@ export const CITIES = {
        // Giga projects
        ["qiddiya", "Qiddiya", "القدية"], ["amaala", "Amaala", "العمالة"],
        ],
-  AE: [["dubai", "Dubai", "دبي"], ["abu-dhabi", "Abu Dhabi", "أبوظبي"], ["sharjah", "Sharjah", "الشارقة"]],
-  QA: [["doha", "Doha", "الدوحة"]], KW: [["kuwait-city", "Kuwait City", "الكويت"]], BH: [["manama", "Manama", "المنامة"]],
-  OM: [["muscat", "Muscat", "مسقط"]], EG: [["cairo", "Cairo", "القاهرة"], ["alexandria", "Alexandria", "الإسكندرية"]],
-  JO: [["amman", "Amman", "عمّان"]], LB: [["beirut", "Beirut", "بيروت"]], IQ: [["baghdad", "Baghdad", "بغداد"]],
-  MA: [["casablanca", "Casablanca", "الدار البيضاء"]], TR: [["istanbul", "Istanbul", "إسطنبول"]],
-  GB: [["london", "London", "لندن"]], US: [["new-york", "New York", "نيويورك"]], DE: [["berlin", "Berlin", "برلين"]],
-  FR: [["paris", "Paris", "باريس"]],
+  // Non-Saudi markets, generated from backend/sources.py MARKET_CITIES.
+  // Non-Saudi markets, generated from backend/sources.py MARKET_CITIES.
+  // Non-Saudi markets, generated from backend/sources.py MARKET_CITIES.
+  AE: [["dubai", "Dubai", "دبي"], ["abu-dhabi", "Abu Dhabi", "أبوظبي"], ["sharjah", "Sharjah", "الشارقة"], ["al-ain", "Al Ain", "العين"], ["ajman", "Ajman", "عجمان"], ["ras-al-khaimah", "Ras Al Khaimah", "رأس الخيمة"], ["fujairah", "Fujairah", "فجيرة"], ["umm-al-quwain", "Umm Al Quwain", "أم القيوين"]],
+  QA: [["doha", "Doha", "الدوحة"], ["al-rayyan", "Al Rayyan", "الريان"], ["al-wakrah", "Al Wakrah", "الوكرة"], ["al-khor", "Al Khor", "الخور"], ["lusail", "Lusail", "لوسيل"], ["al-daayen", "Al Daayen", "الظعاين"], ["dukhan", "Dukhan", "دخان"]],
+  KW: [["kuwait-city", "Kuwait City", "مدينة الكويت"], ["hawalli", "Hawalli", "حولي"], ["salmiya", "Salmiya", "سالمية"], ["farwaniya", "Farwaniya", "الفروانية"], ["jahra", "Jahra", "الجهراء"], ["mangaf", "Mangaf", "منقف"], ["ahmadi", "Ahmadi", "الأحمدي"], ["fahaheel", "Fahaheel", "الفحيحيل"]],
+  BH: [["manama", "Manama", "المنامة"], ["muharraq", "Muharraq", "المحرق"], ["riffa", "Riffa", "الرفاع"], ["isa-town", "Isa Town", "عيسى town"], ["saitiya", "Saitiya", "سعدية"], ["budaiya", "Budaiya", "الbudaiya"], ["hamad-town", "Hamad Town", "مدينة حمد"]],
+  OM: [["muscat", "Muscat", "مسقط"], ["salalah", "Salalah", "صلالة"], ["sohar", "Sohar", "صحار"], ["nizwa", "Nizwa", "نزوى"], ["sur", "Sur", "sur"], ["ibri", "Ibri", "إبراء"], ["rustaq", "Rustaq", "رستاق"], ["khasab", "Khasab", "خصاب"]],
+  EG: [["cairo", "Cairo", "القاهرة"], ["giza", "Giza", "الجيزة"], ["alexandria", "Alexandria", "الإسكندرية"], ["luxor", "Luxor", "الأقصر"], ["aswan", "Aswan", "أسوان"], ["port-said", "Port Said", "بورسعيد"], ["suez", "Suez", "السويس"], ["sharm-el-sheikh", "Sharm El Sheikh", "شرم الشيخ"], ["hurghada", "Hurghada", "الغردقة"], ["mansoura", "Mansoura", "المنصورة"], ["tanta", "Tanta", "طنطا"], ["asyut", "Asyut", "أسيوط"], ["zagazig", "Zagazig", "الزقازيق"]],
+  JO: [["amman", "Amman", "عمّان"], ["zarqa", "Zarqa", "الزرقاء"], ["irbid", "Irbid", "إربد"], ["aqaba", "Aqaba", "العقبة"], ["madaba", "Madaba", "مادبا"], ["karak", "Karak", "الكرك"], ["salt", "Salt", "السalt"]],
+  LB: [["beirut", "Beirut", "بيروت"], ["tripoli", "Tripoli", "طرابلس"], ["sidon", "Sidon", "صور"], ["byblos", "Byblos", "جبيل"], ["jounieh", "Jounieh", "جونية"], ["zahle", "Zahle", "زحلة"]],
+  IQ: [["baghdad", "Baghdad", "بغداد"], ["basra", "Basra", "البصرة"], ["mosul", "Mosul", "الموصل"], ["erbil", "Erbil", "أربيل"], ["najaf", "Najaf", "النجف"], ["karbala", "Karbala", "كربلاء"], ["kirkuk", "Kirkuk", "كركوك"], ["nasiriyah", "Nasiriyah", "الناصرية"]],
+  TR: [["istanbul", "Istanbul", "إسطنبول"], ["ankara", "Ankara", "أنقرة"], ["izmir", "Izmir", "إزمير"], ["bursa", "Bursa", "بورصة"], ["antalya", "Antalya", "أنطاليا"], ["adana", "Adana", "أضنة"], ["konya", "Konya", "قونية"], ["gaziantep", "Gaziantep", "غازي عنتاب"]],
+  IN: [["mumbai", "Mumbai", "mumbai"], ["delhi", "Delhi", "delhi"], ["bengaluru", "Bengaluru", "bengaluru"], ["hyderabad", "Hyderabad", "hyderabad"], ["chennai", "Chennai", "chennai"], ["pune", "Pune", "pune"], ["kolkata", "Kolkata", "kolkata"], ["ahmedabad", "Ahmedabad", "ahmedabad"], ["jaipur", "Jaipur", "jaipur"]],
+  PK: [["karachi", "Karachi", "کراچی"], ["lahore", "Lahore", "لاہور"], ["islamabad", "Islamabad", "اسلام آباد"], ["rawalpindi", "Rawalpindi", "راولپنڈی"], ["peshawar", "Peshawar", "پشاور"], ["quetta", "Quetta", "کوئٹہ"], ["multan", "Multan", "ملتان"], ["gujranwala", "Gujranwala", "گوجرانوالہ"]],
+  PH: [["manila", "Manila", "manila"], ["quezon-city", "Quezon City", "quezon city"], ["makati", "Makati", "makati"], ["cebu-city", "Cebu City", "cebu city"], ["davao", "Davao", "davao"], ["bacoor", "Bacoor", "bacoor"], ["pasig", "Pasig", "pasig"], ["taguig", "Taguig", "taguig"]],
+  US: [["new-york", "New York", "new york"], ["los-angeles", "Los Angeles", "los angeles"], ["chicago", "Chicago", "chicago"], ["houston", "Houston", "houston"], ["phoenix", "Phoenix", "phoenix"], ["philadelphia", "Philadelphia", "philadelphia"], ["san-francisco", "San Francisco", "san francisco"], ["seattle", "Seattle", "seattle"], ["denver", "Denver", "denver"], ["boston", "Boston", "boston"], ["austin", "Austin", "austin"], ["miami", "Miami", "miami"], ["dallas", "Dallas", "dallas"], ["washington-dc", "Washington Dc", "washington dc"], ["atlanta", "Atlanta", "atlanta"]],
+  CA: [["toronto", "Toronto", "toronto"], ["vancouver", "Vancouver", "vancouver"], ["montreal", "Montreal", "montreal"], ["calgary", "Calgary", "calgary"], ["ottawa", "Ottawa", "ottawa"], ["edmonton", "Edmonton", "edmonton"], ["winnipeg", "Winnipeg", "winnipeg"], ["quebec-city", "Quebec City", "quebec city"], ["hamilton", "Hamilton", "hamilton"], ["halifax", "Halifax", "halifax"]],
+  GB: [["london", "London", "london"], ["manchester", "Manchester", "manchester"], ["birmingham", "Birmingham", "birmingham"], ["glasgow", "Glasgow", "glasgow"], ["leeds", "Leeds", "leeds"], ["bristol", "Bristol", "bristol"], ["edinburgh", "Edinburgh", "edinburgh"], ["liverpool", "Liverpool", "liverpool"], ["cardiff", "Cardiff", "cardiff"], ["belfast", "Belfast", "belfast"]],
+  DE: [["berlin", "Berlin", "berlin"], ["munich", "Munich", "munich"], ["hamburg", "Hamburg", "hamburg"], ["frankfurt", "Frankfurt", "frankfurt"], ["cologne", "Cologne", "cologne"], ["stuttgart", "Stuttgart", "stuttgart"], ["dusseldorf", "Dusseldorf", "dusseldorf"], ["leipzig", "Leipzig", "leipzig"], ["dortmund", "Dortmund", "dortmund"], ["essen", "Essen", "essen"], ["bremen", "Bremen", "bremen"], ["dresden", "Dresden", "dresden"], ["hanover", "Hanover", "hanover"], ["nuremberg", "Nuremberg", "nuremberg"]],
+  FR: [["paris", "Paris", "paris"], ["marseille", "Marseille", "marseille"], ["lyon", "Lyon", "lyon"], ["toulouse", "Toulouse", "toulouse"], ["nice", "Nice", "nice"], ["nantes", "Nantes", "nantes"], ["montpellier", "Montpellier", "montpellier"], ["strasbourg", "Strasbourg", "strasbourg"], ["bordeaux", "Bordeaux", "bordeaux"], ["lille", "Lille", "lille"], ["rennes", "Rennes", "rennes"]],
+  AU: [["sydney", "Sydney", "sydney"], ["melbourne", "Melbourne", "melbourne"], ["brisbane", "Brisbane", "brisbane"], ["perth", "Perth", "perth"], ["adelaide", "Adelaide", "adelaide"], ["gold-coast", "Gold Coast", "gold coast"], ["canberra", "Canberra", "canberra"], ["hobart", "Hobart", "hobart"], ["darwin", "Darwin", "darwin"]],
+  MA: [["casablanca", "Casablanca", "الدار البيضاء"], ["rabat", "Rabat", "الرباط"], ["marrakech", "Marrakech", "مراكش"], ["tangier", "Tangier", "طنجة"], ["agadir", "Agadir", "أكادير"], ["fez", "Fez", "fez"], ["meknes", "Meknes", "مكناس"], ["oujda", "Oujda", "وجدة"]],
 };
 export const STATUSES = ["saved", "preparing", "applied", "interview", "offer", "rejected", "ghosted"];
 export const STATUS_LABEL = { saved: "Saved", preparing: "Preparing", applied: "Applied", interview: "Interview", offer: "Offer", rejected: "Rejected", ghosted: "Ghosted" };
 export const STATUS_DOT = { saved: "bg-slate-400", preparing: "bg-sky-500", applied: "bg-emerald-600", interview: "bg-amber-500", offer: "bg-emerald-800", rejected: "bg-rose-500", ghosted: "bg-slate-300" };
+// Auto-apply run outcomes, deliberately separate from tracker STATUS_LABEL: a run can be
+// "filled" or "needs_human" without anything having been submitted to the employer.
+export const APPLY_RUN_LABEL = { submitted: "Submitted", filled: "Preview filled", needs_human: "Needs your input", unsupported: "Not supported", failed: "Failed", unknown: "Submitted, unverified" };
 export const countryName = (code, lang) => {
   const c = COUNTRIES.find((x) => x[0] === code);
   return c ? (lang === "ar" ? c[2] : c[1]) : code || "";

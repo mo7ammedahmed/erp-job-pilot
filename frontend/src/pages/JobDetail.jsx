@@ -1,18 +1,101 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Sparkles, ExternalLink, BookmarkPlus, Wand2, AlertTriangle, ArrowLeft, CheckCircle2, Banknote } from "lucide-react";
+import { Sparkles, ExternalLink, BookmarkPlus, Wand2, AlertTriangle, ArrowLeft, CheckCircle2, Banknote, Send, ShieldCheck, CircleHelp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, errMsg } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/context/AuthContext";
-import { countryName, STATUS_LABEL } from "@/lib/constants";
+import { countryName, STATUS_LABEL, APPLY_RUN_LABEL } from "@/lib/constants";
 import { Card, FullLoader, ScoreRing, VerdictPill, Spinner, ScoreBadge } from "@/components/common";
 import { SimpleSelect } from "@/pages/Onboarding";
 
 const Chips = ({ items, cls, testid }) => (
   <div className="flex flex-wrap gap-1.5" data-testid={testid}>{(items || []).map((s, i) => <span key={i} className={`rounded-md px-2 py-0.5 text-xs ${cls}`}>{s}</span>)}</div>
 );
+
+const RUN_TONE = {
+  submitted: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  filled: "border-sky-200 bg-sky-50 text-sky-900",
+  needs_human: "border-amber-200 bg-amber-50 text-amber-900",
+  unsupported: "border-slate-200 bg-slate-50 text-slate-700",
+  failed: "border-rose-200 bg-rose-50 text-rose-900",
+  unknown: "border-amber-200 bg-amber-50 text-amber-900",
+};
+
+function AutoApplyCard({ job, jobId }) {
+  const { t } = useI18n();
+  const [run, setRun] = useState(null);
+  const [busy, setBusy] = useState("");
+
+  // Preview opens the employer's real form and fills it in without submitting, so the user can
+  // confirm the data before anything is actually sent to them.
+  const go = (submit) => async () => {
+    setBusy(submit ? "submit" : "preview");
+    setRun(null);
+    try {
+      const { data } = await api.post(submit ? "/apply" : "/apply/preview", { job_id: jobId, submit });
+      setRun(data);
+      if (data.status === "submitted") toast.success(t("Application submitted"));
+      else if (data.status === "needs_human") toast.warning(data.message);
+      else if (data.status === "unsupported" || data.status === "failed") toast.error(data.message);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  if (!job.url) return null;
+  const blockers = (run?.blockers || []).filter((b) => !b.startsWith("missing_fields"));
+  const missing = (run?.blockers || []).find((b) => b.startsWith("missing_fields"));
+
+  return (
+    <Card className="jp-rise-3" data-testid="auto-apply-card">
+      <div className="mb-3 flex items-center gap-2 font-heading font-semibold">
+        <Send className="h-4 w-4 text-emerald-800" />{t("Apply automatically")}
+      </div>
+      <p className="mb-3 text-xs text-slate-500">
+        {t("Fills this employer's real application form with your saved details.")}
+      </p>
+
+      <div className="flex flex-col gap-2">
+        <Button variant="outline" onClick={go(false)} disabled={!!busy} data-testid="apply-preview-button">
+          {busy === "preview" ? <Spinner className="me-2" /> : <ShieldCheck className="me-2 h-4 w-4" />}
+          {t("Preview the form first")}
+        </Button>
+        <Button className="bg-emerald-900 hover:bg-emerald-800" onClick={go(true)} disabled={!!busy} data-testid="apply-button">
+          {busy === "submit" ? <Spinner className="me-2" /> : <Send className="me-2 h-4 w-4" />}
+          {t("Fill & submit application")}
+        </Button>
+      </div>
+
+      <p className="mt-3 text-xs text-slate-500">
+        {t("We stop and ask you to finish it if the employer uses a CAPTCHA or asks for anything we can't fill.")}{" "}
+        <Link to="/app/settings" className="text-emerald-800 underline">{t("Edit apply profile")}</Link>
+      </p>
+
+      {run && (
+        <div className={`mt-3 rounded-lg border p-3 text-xs ${RUN_TONE[run.status] || RUN_TONE.unknown}`} data-testid="apply-result">
+          <div className="font-semibold">{t(APPLY_RUN_LABEL[run.status] || run.status)}</div>
+          <div className="mt-1">{run.message}</div>
+          {!!run.filled?.length && (
+            <div className="mt-2 font-mono opacity-80">{t("Filled")}: {run.filled.join(", ")}</div>
+          )}
+          {missing && <div className="mt-2">{t("Needs your input")}: {missing.replace("missing_fields:", "")}</div>}
+          {!!blockers.length && (
+            <div className="mt-2 flex items-start gap-1.5"><CircleHelp className="mt-0.5 h-3 w-3 shrink-0" /><span>{blockers.join(", ")}</span></div>
+          )}
+          {run.final_url && run.status === "submitted" && (
+            <a href={run.final_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 underline">
+              {t("View confirmation")}<ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
 
 function ReviewPanel({ review }) {
   const { t } = useI18n();
@@ -125,6 +208,7 @@ export default function JobDetail() {
               <li key={x.tailored_id}><Link to={`/app/tailor/${x.tailored_id}`} className="flex justify-between hover:underline"><span>{x.lang.toUpperCase()} · {t(x.status)}</span><span className="text-xs text-slate-400">{fmtDate(x.created_at)}</span></Link></li>))}</ul>}
           </Card>}
           <SalaryCard jobId={id} />
+          <AutoApplyCard job={j} jobId={id} />
         </aside>
       </div>
     </div>

@@ -9,22 +9,37 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from typing import Optional
-from core import (db, iso, now, parse_dt, uid, NOID, get_current_user, get_plan, usage_of, audit, encrypt_str, decrypt_str,
+from core import (db, iso, now, parse_dt, uid, NOID, get_current_user, get_plan, usage_of, audit, encrypt_str, decrypt_str, integration_secrets, integration_value,
                   APP_URL, DEFAULT_PLANS)
 from r_apps import get_app, event, get_tl, render_export
 
 router = APIRouter(prefix="/api")
 
 # ---------- Gmail (drafts + send only; inbox scanning is Phase 2) ----------
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.compose", "openid", "https://www.googleapis.com/auth/userinfo.email"]
 REDIRECT_URI = f"{APP_URL}/api/oauth/gmail/callback"
 
 
-def _flow():
+async def _google_creds():
+    """OAuth client credentials, resolved per call from the admin secret store then the env."""
+    stored = await integration_secrets()
+    return (await integration_value("GOOGLE_CLIENT_ID", stored), await integration_value("GOOGLE_CLIENT_SECRET", stored))
+
+
+async def _moyasar_creds():
+    stored = await integration_secrets()
+    return (await integration_value("MOYASAR_PUBLISHABLE_KEY", stored), await integration_value("MOYASAR_SECRET_KEY", stored),
+            (await integration_value("MOYASAR_APPLE_PAY", stored)) == "1")
+
+
+async def _stripe_creds():
+    stored = await integration_secrets()
+    return (await integration_value("STRIPE_SECRET_KEY", stored), await integration_value("STRIPE_WEBHOOK_SECRET", stored))
+
+
+def _flow(client_id, client_secret):
     from google_auth_oauthlib.flow import Flow
-    return Flow.from_client_config({"web": {"client_id": GOOGLE_CLIENT_ID, "client_secret": GOOGLE_CLIENT_SECRET,
+    return Flow.from_client_config({"web": {"client_id": client_id, "client_secret": client_secret,
                                             "auth_uri": "https://accounts.google.com/o/oauth2/auth", "token_uri": "https://oauth2.googleapis.com/token"}},
                                    scopes=GMAIL_SCOPES, redirect_uri=REDIRECT_URI)
 
@@ -33,17 +48,19 @@ def _flow():
 async def gmail_status(user=Depends(get_current_user)):
     tok = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0, "email": 1, "created_at": 1})
     plan = await get_plan(user)
-    return {"configured": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET), "connected": bool(tok), "email": (tok or {}).get("email"),
+    client_id, client_secret = await _google_creds()
+    return {"configured": bool(client_id and client_secret), "connected": bool(tok), "email": (tok or {}).get("email"),
             "plan_allows": plan["features"].get("gmail", False)}
 
 
 @router.get("/gmail/connect")
 async def gmail_connect(user=Depends(get_current_user)):
-    if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
+    client_id, client_secret = await _google_creds()
+    if not (client_id and client_secret):
         raise HTTPException(503, "Gmail is not configured yet")
     if not (await get_plan(user))["features"].get("gmail"):
         raise HTTPException(402, {"code": "feature_locked", "kind": "gmail"})
-    url, state = _flow().authorization_url(access_type="offline", prompt="consent", include_granted_scopes="true")
+    url, state = _flow(client_id, client_secret).authorization_url(access_type="offline", prompt="consent", include_granted_scopes="true")
     await db.oauth_states.insert_one({"state": state, "user_id": user["user_id"], "expires_at": iso(now() + timedelta(minutes=10))})
     return {"url": url}
 
@@ -53,7 +70,7 @@ async def gmail_callback(code: str = "", state: str = "", error: str = ""):
     st = await db.oauth_states.find_one_and_delete({"state": state})
     if error or not st or parse_dt(st["expires_at"]) < now():
         return RedirectResponse(f"{APP_URL}/app/settings?gmail=error")
-    flow = _flow()
+    flow = _flow(*await _google_creds())
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
@@ -136,18 +153,14 @@ async def gmail_compose(body: ComposeIn, user=Depends(get_current_user)):
 
 
 # ---------- Moyasar (mada, Apple Pay, STC Pay) ----------
-MOYASAR_PK = os.environ.get("MOYASAR_PUBLISHABLE_KEY", "")
-MOYASAR_SK = os.environ.get("MOYASAR_SECRET_KEY", "")
-MOYASAR_APPLE_PAY = os.environ.get("MOYASAR_APPLE_PAY", "") == "1"
-
-
 class MoyasarOrderIn(BaseModel):
     plan_id: str
 
 
 @router.post("/billing/moyasar/order")
 async def moyasar_order(body: MoyasarOrderIn, user=Depends(get_current_user)):
-    if not (MOYASAR_PK and MOYASAR_SK):
+    moyasar_pk, moyasar_sk, apple_pay = await _moyasar_creds()
+    if not (moyasar_pk and moyasar_sk):
         raise HTTPException(503, "payments_not_configured")
     plan = await db.plans.find_one({"plan_id": body.plan_id}, NOID)
     if not plan or plan["price_sar"] <= 0:
@@ -155,13 +168,14 @@ async def moyasar_order(body: MoyasarOrderIn, user=Depends(get_current_user)):
     order = {"order_id": uid("ord_"), "user_id": user["user_id"], "plan_id": plan["plan_id"], "amount": int(round(plan["price_sar"] * 100)),
              "currency": "SAR", "status": "pending", "provider": "moyasar", "created_at": iso()}
     await db.payment_transactions.insert_one(order)
-    return {"order_id": order["order_id"], "amount": order["amount"], "currency": "SAR", "publishable_key": MOYASAR_PK,
-            "description": f"JobPilot {plan['name']} — 1 month", "apple_pay": MOYASAR_APPLE_PAY}
+    return {"order_id": order["order_id"], "amount": order["amount"], "currency": "SAR", "publishable_key": moyasar_pk,
+            "description": f"JobPilot {plan['name']} — 1 month", "apple_pay": apple_pay}
 
 
 @router.get("/billing/moyasar/verify")
 async def moyasar_verify(id: str, order_id: str, user=Depends(get_current_user)):
     import httpx
+    _, moyasar_sk, _ = await _moyasar_creds()
     order = await db.payment_transactions.find_one({"order_id": order_id, "user_id": user["user_id"]}, NOID)
     if not order:
         raise HTTPException(404, "Order not found")
@@ -169,7 +183,7 @@ async def moyasar_verify(id: str, order_id: str, user=Depends(get_current_user))
         return {"ok": True, "already_processed": True}
     try:
         async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get(f"https://api.moyasar.com/v1/payments/{id}", auth=(MOYASAR_SK, ""))
+            r = await c.get(f"https://api.moyasar.com/v1/payments/{id}", auth=(moyasar_sk, ""))
         r.raise_for_status()
         p = r.json()
     except Exception:
@@ -190,19 +204,16 @@ async def moyasar_verify(id: str, order_id: str, user=Depends(get_current_user))
 
 
 # ---------- Billing (Stripe) ----------
-STRIPE_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-stripe.api_key = STRIPE_KEY
-
-
 @router.get("/billing/plans")
 async def plans(user=Depends(get_current_user)):
     items = await db.plans.find({}, NOID).sort("order", 1).to_list(10)
     eff = await get_plan(user)
+    stripe_key, _ = await _stripe_creds()
+    moyasar_pk, moyasar_sk, _ = await _moyasar_creds()
     return {"plans": items or DEFAULT_PLANS, "current": eff["plan_id"], "plan_expires_at": user.get("plan_expires_at") if user.get("role") != "admin" else None,
             "is_admin": user.get("role") == "admin", "usage": await usage_of(user["user_id"]),
-            "applications": await db.applications.count_documents({"user_id": user["user_id"]}), "payments_enabled": bool(STRIPE_KEY),
-            "moyasar_enabled": bool(MOYASAR_PK and MOYASAR_SK)}
+            "applications": await db.applications.count_documents({"user_id": user["user_id"]}), "payments_enabled": bool(stripe_key),
+            "moyasar_enabled": bool(moyasar_pk and moyasar_sk)}
 
 
 class CheckoutIn(BaseModel):
@@ -210,9 +221,20 @@ class CheckoutIn(BaseModel):
     origin_url: str
 
 
+async def _stripe_ready():
+    """Load the Stripe key into the SDK at call time and return it ("" when unconfigured).
+
+    The key can now be set from the dashboard, so it cannot be assigned once at import.
+    """
+    key, _ = await _stripe_creds()
+    if key:
+        stripe.api_key = key
+    return key
+
+
 @router.post("/billing/checkout")
 async def checkout(body: CheckoutIn, user=Depends(get_current_user)):
-    if not STRIPE_KEY:
+    if not await _stripe_ready():
         raise HTTPException(503, "payments_not_configured")
     plan = await db.plans.find_one({"plan_id": body.plan_id}, NOID)
     if not plan or plan["price_usd"] <= 0:
@@ -243,7 +265,7 @@ async def pay_status(session_id: str):
     rec = await db.payment_transactions.find_one({"session_id": session_id}, NOID)
     if not rec:
         raise HTTPException(404, "Transaction not found")
-    if rec["payment_status"] != "paid" and STRIPE_KEY:
+    if rec["payment_status"] != "paid" and await _stripe_ready():
         try:
             s = stripe.checkout.Session.retrieve(session_id)
             if s.payment_status == "paid" or s.status == "complete":
@@ -257,8 +279,9 @@ async def pay_status(session_id: str):
 @router.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
+    _, webhook_secret = await _stripe_creds()
     try:
-        ev = stripe.Webhook.construct_event(payload, request.headers.get("stripe-signature", ""), STRIPE_WEBHOOK_SECRET)
+        ev = stripe.Webhook.construct_event(payload, request.headers.get("stripe-signature", ""), webhook_secret)
     except Exception:
         raise HTTPException(400, "Invalid signature")
     obj = ev["data"]["object"]

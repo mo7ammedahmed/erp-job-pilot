@@ -24,14 +24,16 @@ const DOCS = {
   },
   terms: {
     en: ["Terms of service", [
-      ["The service", "JobPilot helps you organise your job search. We do not apply to jobs on your behalf, and nothing is sent without your explicit approval."],
+      ["The service", "JobPilot helps you organise your job search. You choose which jobs to apply to: auto-apply only ever runs when you press the apply button, and you can preview a filled form without submitting it. You remain responsible for what is sent to an employer."],
+      ["Automated applications", "When you use auto-apply, JobPilot fills the employer's real application form using the details in your apply profile and your master CV, and submits it. We stop and ask you to finish the application yourself if the employer uses a CAPTCHA or bot check, or asks for something we cannot fill. We do not attempt to bypass those protections. Every run is recorded with a timestamp and a screenshot of the form."],
       ["Your content", "You are responsible for the accuracy of your CV. JobPilot's AI only reorders and rephrases your real data; always review tailored CVs before use."],
       ["Job listings", "Jobs come from official APIs, public company career feeds, and content you add yourself. Listings belong to their publishers and link back to the original source."],
       ["Plans & billing", "Paid plans renew monthly and can be cancelled anytime. Hitting a usage limit never deletes your data."],
       ["Acceptable use", "No spam, no misuse of connected email accounts, no attempts to scrape or abuse the platform."],
       ["Liability", "The service is provided as is. AI output can be wrong; you remain responsible for what you submit to employers."]]],
     ar: ["شروط الخدمة", [
-      ["الخدمة", "يساعدك JobPilot على تنظيم بحثك عن عمل. لا نقدّم على الوظائف نيابة عنك، ولا يُرسل أي شيء دون موافقتك الصريحة."],
+      ["الخدمة", "يساعدك JobPilot على تنظيم بحثك عن عمل. أنت من يختار الوظائف التي تقدّم عليها: التقديم التلقائي لا يعمل إلا عند الضغط على زر التقديم، ويمكنك معاينة نموذج مملوء دون إرساله. وتبقى مسؤولًا عمّا يُرسل إلى صاحب العمل."],
+      ["التقديمات الآلية", "عند استخدام التقديم التلقائي، يملأ JobPilot نموذج التقديم الحقيقي لدى صاحب العمل ببيانات ملف التقديم وسيرتك الأساسية ثم يرسله. نتوقف ونطلب منك إكمال الطلب بنفسك إذا استخدم صاحب العمل كابتشا أو تحقّقًا من الروبوت، أو طلب شيئًا لا نستطيع تعبئته، ولا نحاول تجاوز هذه الحمايات. تُسجَّل كل محاولة مع وقتها وصورة شاشة للنموذج."],
       ["محتواك", "أنت مسؤول عن دقة سيرتك الذاتية. الذكاء الاصطناعي يعيد ترتيب بياناتك الحقيقية وصياغتها فقط؛ راجع السيرة المخصصة دائمًا قبل استخدامها."],
       ["إعلانات الوظائف", "تأتي الوظائف من واجهات برمجية رسمية وصفحات توظيف عامة للشركات ومحتوى تضيفه بنفسك، وتبقى ملكًا لناشريها مع رابط للمصدر."],
       ["الخطط والدفع", "تتجدد الخطط المدفوعة شهريًا ويمكن إلغاؤها في أي وقت، والوصول إلى حد الاستخدام لا يحذف بياناتك."],
